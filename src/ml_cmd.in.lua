@@ -1,4 +1,4 @@
-#!@path_to_lua@/lua
+#!@path_to_lua@
 -- -*- lua -*-
 
 --------------------------------------------------------------------------
@@ -18,7 +18,7 @@
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -58,13 +58,19 @@ package.path   = sys_lua_path
 package.cpath  = sys_lua_cpath
 
 local arg_0    = arg[0]
+_G._DEBUG      = false
 local posix    = require("posix")
 local readlink = posix.readlink
 local stat     = posix.stat
 
 local st       = stat(arg_0)
 while (st.type == "link") do
-   arg_0 = readlink(arg_0)
+   local lnk = readlink(arg_0)
+   if (arg_0:find("/") and (lnk:find("^/") == nil)) then
+      local dir = arg_0:gsub("/[^/]*$","")
+      lnk       = dir .. "/" .. lnk
+   end
+   arg_0 = lnk
    st    = stat(arg_0)
 end
 
@@ -74,19 +80,29 @@ if (ia) then
    LuaCommandName_dir = arg_0:sub(1,ja)
 end
 
-package.path  = LuaCommandName_dir .. "../tools/?.lua;" ..
-                LuaCommandName_dir .. "?.lua;"          ..
+package.path  = LuaCommandName_dir .. "../tools/?.lua;"      ..
+                LuaCommandName_dir .. "../tools/?/init.lua;" ..
+                LuaCommandName_dir .. "?.lua;"               ..
                 sys_lua_path
-package.cpath = sys_lua_cpath
+package.cpath = LuaCommandName_dir .. "../lib/?.so;"..
+                sys_lua_cpath
 
+--------------------------------------------------------------------------
+-- Return the path to the Lmod program
+function cmdDir()
+   return LuaCommandName_dir
+end
 
 pcall(require("strict"))
+
+require("utils")
+local i18n = require("i18n")
 
 local concatTbl = table.concat
 
 --------------------------------------------------------------------------
 -- Wrap an entity in single quotes.
--- @param a a entity to wrap in quotes.
+-- @param a an entity to wrap in quotes.
 local function quoteWrap(a)
    return "'" .. tostring(a) .. "'"
 end
@@ -94,26 +110,7 @@ end
 --------------------------------------------------------------------------
 -- Simple usage message.
 function usage()
-   io.stderr:write("\n",
-                   "ml: A handy front end for the module command:\n\n",
-                   "Simple usage:\n",
-                   " -------------\n",
-                   "  $ ml\n",
-                   "                           means: module list\n",
-                   "  $ ml foo bar\n",
-                   "                           means: module load foo bar\n",
-                   "  $ ml -foo -bar baz goo\n",
-                   "                           means: module unload foo bar;\n",
-                   "                                  module load baz goo;\n\n",
-                   "Command usage:\n",
-                   "--------------\n\n",
-                   "Any module command can be given after ml:\n\n",
-                   "if name is avail, save, restore, show, swap,...\n",
-                   "    $ ml name  arg1 arg2 ...\n\n",
-                   "Then this is the same :\n",
-                   "    $ module name arg1 arg2 ...\n\n",
-                   "In other words you can not load a module named: show swap etc\n")
-
+   io.stderr:write(i18n("ml_help", {}))
    io.stderr:write("\n\n-----------------------------------------------\n",
                    "  Robert McLay, TACC\n",
                    "     mclay@tacc.utexas.edu\n")
@@ -125,6 +122,7 @@ end
 -- The main program.  Process options and generate module command.
 function main()
 
+   build_i18n_messages()
    local argA     = {}
    local optA     = {}
    local cmdA     = {}
@@ -147,6 +145,7 @@ function main()
       ["--initial_load"] = 0,  ["--initial-load"] = 0,
       ["--latest"] = 0,
       ["--localvar"]=1,
+      ["--location"]=0,  ["--loc"] = 0,
       ["--pin_versions"]=0, ["--pin-versions"]=0,
       ["--mt"] = 0,
       ["--quiet"] = 0,  ["-q"] = 0,
@@ -154,6 +153,7 @@ function main()
       ["--spider_timeout"] = 1,       ["--spider-timeout"] = 1,
       ["--terse"] = 0,  ["-t"] = 0,
       ["--timer"] = 0,
+      ["--trace"] = 0,  ["-T"] = 0,
       ["--version"]=0,  ["--versoin"]=0, ["--ver"]=0, ["--v"]=0, ["-v"]=0,
       ['--config'] = 0,
       ['--config-json'] = 0,
@@ -165,6 +165,7 @@ function main()
    }
 
    local translateT = {
+      ["--loc"]="--location",
       ["--versoin"]="--version",
       ["--ver"]="--version",
       ["--v"]="--version",
@@ -178,6 +179,7 @@ function main()
    local lmodCmdT = {
       avail="avail",  av="avail", available="avail",
       describe="describe", mcc="describe",
+      disable="disable",
       getdefault="getdefault", gd="getdefault",
       help="help",
       key="keyword", keyword="keyword",
@@ -196,8 +198,16 @@ function main()
       show="show",
       spider="spider",
       swap="swap", sw="swap",
+      switch="swap", 
       tablelist="tablelist",
-      ['try-load'] = "try-load",
+      ['try-load']  = "try-load",
+      ['tryload']   = "try-load",
+      ['try-add']   = "try-load",
+      ['tryadd']    = "try-load",
+      ['is-loaded'] = "is-loaded",
+      ['isloaded']  = "is-loaded",
+      ['is-avail']  = "is-avail",
+      ['isAvail']   = "is-avail",
       unload="unload", rm = "unload", del = "unload", delete="unload",      unuse="unuse",
       update="update",
       use="use",
@@ -242,19 +252,26 @@ function main()
             return
          end
 
+         if (v == "-") then
+            io.stderr:write(i18n("ml_opt",{v=v}))
+            os.exit(1)
+         end
+
          local num = lmodOptT[v]
          if (num) then
+            if (cmdFound) then
+               io.stderr:write(i18n("ml_misplaced_opt",{opt=v}))
+               os.exit(1)
+            end
             grab          = num
             optA[#optA+1] = translateT[v] or v
             break
          end
 
          if (v:find("^%-%-")) then
-            io.stderr:write("Option: \"",v,"\" is unknown\n",
-                            "Try ml --help for usage\n")
+            io.stderr:write(i18n("ml_opt",{v=v}))
             os.exit(1)
          end
-
 
          local cmd = lmodCmdT[v]
          if (cmd and not cmdFound) then
@@ -268,7 +285,7 @@ function main()
    end
 
    if (#cmdA > 1) then
-      io.stderr:write("ml error: too many commands\n")
+      io.stderr:write(i18n("ml_2many",{}))
       os.exit(1)
    end
 

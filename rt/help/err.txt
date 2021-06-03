@@ -2,7 +2,7 @@
 step 1
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing --version
 ===========================
-Modules based on Lua: Version 0.9.2  2016-10-25 13:59 -05:00
+Modules based on Lua: Version 8.4.30  2021-04-16 12:06 -05:00
     by Robert McLay mclay@tacc.utexas.edu
 ===========================
 step 2
@@ -14,11 +14,10 @@ Options:
   -s availStyle --style=availStyle  Site controlled avail style: system (default: system)
   --regression_testing              Lmod regression testing
   -D                                Program tracing written to stderr
-  --debug=dbglvl                    Program tracing written to stderr
+  --debug=dbglvl                    Program tracing written to stderr (where dbglvl is a number 1,2,3)
   --pin_versions=pinVersions        When doing a restore use specified version, do not follow defaults
   -d --default                      List default modules only when used with avail
   -q --quiet                        Do not print out warnings
-  --topic=topic                     help topics: modfuncs envvars
   --expert                          Expert mode
   -t --terse                        Write out in machine readable format for commands: list, avail, spider, savelist
   --initial_load                    loading Lmod for first time in a user shell
@@ -31,9 +30,9 @@ Options:
   -r --regexp                       use regular expression match
   --gitversion                      Dump git version in a machine readable way and quit
   --dumpversion                     Dump version in a machine readable way and quit
-  --localvar=localvarA              local variables needed to be set after this commands execution
   --check_syntax --checkSyntax      Checking module command syntax: do not load
   --config                          Report Lmod Configuration
+  --config_json                     Report Lmod Configuration in json format
   --mt                              Report Module Table State
   --timer                           report run times
   --force                           force removal of a sticky module or save an empty collection
@@ -41,6 +40,9 @@ Options:
   --no_redirect                     Force output of list, avail and spider to stderr
   --show_hidden                     Avail and spider will report hidden modules
   --spider_timeout=timeout          a timeout for spider
+  -T --trace
+  --nx --no_extensions
+  --loc --location                  Just print the file location when using show
 module [options] sub-command [args ...]
 Help sub-commands:
   help                              prints this message
@@ -66,9 +68,9 @@ Listing / Searching sub-commands:
   keyword | key       string        Search all name and whatis that contain "string".
 Searching with Lmod:
   All searching (spider, list, avail, keyword) support regular expressions:
-  spider -r           '^p'          Finds all the modules that start with `p' or `P'
-  spider -r           mpi           Finds all modules that have "mpi" in their name.
-  spider -r           'mpi$         Finds all modules that end with "mpi" in their name.
+  -r spider           '^p'          Finds all the modules that start with `p' or `P'
+  -r spider           mpi           Finds all modules that have "mpi" in their name.
+  -r spider           'mpi$         Finds all modules that end with "mpi" in their name.
 Handling a collection of modules:
   save | s                          Save the current list of modules to a user defined "default" collection.
   save | s            name          Save the current list of modules to "name" collection.
@@ -78,12 +80,15 @@ Handling a collection of modules:
   restore             system        Restore module state to system defaults.
   savelist                          List of saved collections.
   describe | mcc      name          Describe the contents of a module collection.
+  disable             name          Disable (i.e. remove) a collection.
 Deprecated commands:
   getdefault          [name]        load name collection of modules or user's "default" if no name given.
                                     ===> Use "restore" instead  <====
   setdefault          [name]        Save current list of modules to name if given, otherwise save as the default list for you the user.
                                     ===> Use "save" instead. <====
 Miscellaneous sub-commands:
+  is-loaded           modulefile    return a true status if module is loaded
+  is-avail            modulefile    return a true status if module can be loaded
   show                modulefile    show the commands in the module file.
   use [-a]            path          Prepend or Append path to MODULEPATH.
   unuse               path          remove path from MODULEPATH.
@@ -92,11 +97,11 @@ Important Environment Variables:
   LMOD_COLORIZE                     If defined to be "YES" then Lmod prints properties and warning in color.
 Lmod Web Sites
   Documentation:    http://lmod.readthedocs.org
-  Github:           https://github.com/TACC/Lmod
-  Sourceforge:      https://lmod.sf.net
+  GitHub:           https://github.com/TACC/Lmod
+  SourceForge:      https://lmod.sf.net
   TACC Homepage:    https://www.tacc.utexas.edu/research-development/tacc-projects/lmod
   To report a bug please read http://lmod.readthedocs.io/en/latest/075_bug_reporting.html
-Modules based on Lua: Version 0.9.2  2016-10-25 13:59 -05:00
+Modules based on Lua: Version 8.4.30  2021-04-16 12:06 -05:00
     by Robert McLay mclay@tacc.utexas.edu
 ===========================
 step 3
@@ -108,11 +113,10 @@ Options:
   -s availStyle --style=availStyle  Site controlled avail style: system (default: system)
   --regression_testing              Lmod regression testing
   -D                                Program tracing written to stderr
-  --debug=dbglvl                    Program tracing written to stderr
+  --debug=dbglvl                    Program tracing written to stderr (where dbglvl is a number 1,2,3)
   --pin_versions=pinVersions        When doing a restore use specified version, do not follow defaults
   -d --default                      List default modules only when used with avail
   -q --quiet                        Do not print out warnings
-  --topic=topic                     help topics: modfuncs envvars
   --expert                          Expert mode
   -t --terse                        Write out in machine readable format for commands: list, avail, spider, savelist
   --initial_load                    loading Lmod for first time in a user shell
@@ -125,9 +129,9 @@ Options:
   -r --regexp                       use regular expression match
   --gitversion                      Dump git version in a machine readable way and quit
   --dumpversion                     Dump version in a machine readable way and quit
-  --localvar=localvarA              local variables needed to be set after this commands execution
   --check_syntax --checkSyntax      Checking module command syntax: do not load
   --config                          Report Lmod Configuration
+  --config_json                     Report Lmod Configuration in json format
   --mt                              Report Module Table State
   --timer                           report run times
   --force                           force removal of a sticky module or save an empty collection
@@ -135,6 +139,9 @@ Options:
   --no_redirect                     Force output of list, avail and spider to stderr
   --show_hidden                     Avail and spider will report hidden modules
   --spider_timeout=timeout          a timeout for spider
+  -T --trace
+  --nx --no_extensions
+  --loc --location                  Just print the file location when using show
 module [options] sub-command [args ...]
 Help sub-commands:
   help                              prints this message
@@ -160,9 +167,9 @@ Listing / Searching sub-commands:
   keyword | key       string        Search all name and whatis that contain "string".
 Searching with Lmod:
   All searching (spider, list, avail, keyword) support regular expressions:
-  spider -r           '^p'          Finds all the modules that start with `p' or `P'
-  spider -r           mpi           Finds all modules that have "mpi" in their name.
-  spider -r           'mpi$         Finds all modules that end with "mpi" in their name.
+  -r spider           '^p'          Finds all the modules that start with `p' or `P'
+  -r spider           mpi           Finds all modules that have "mpi" in their name.
+  -r spider           'mpi$         Finds all modules that end with "mpi" in their name.
 Handling a collection of modules:
   save | s                          Save the current list of modules to a user defined "default" collection.
   save | s            name          Save the current list of modules to "name" collection.
@@ -172,12 +179,15 @@ Handling a collection of modules:
   restore             system        Restore module state to system defaults.
   savelist                          List of saved collections.
   describe | mcc      name          Describe the contents of a module collection.
+  disable             name          Disable (i.e. remove) a collection.
 Deprecated commands:
   getdefault          [name]        load name collection of modules or user's "default" if no name given.
                                     ===> Use "restore" instead  <====
   setdefault          [name]        Save current list of modules to name if given, otherwise save as the default list for you the user.
                                     ===> Use "save" instead. <====
 Miscellaneous sub-commands:
+  is-loaded           modulefile    return a true status if module is loaded
+  is-avail            modulefile    return a true status if module can be loaded
   show                modulefile    show the commands in the module file.
   use [-a]            path          Prepend or Append path to MODULEPATH.
   unuse               path          remove path from MODULEPATH.
@@ -186,11 +196,11 @@ Important Environment Variables:
   LMOD_COLORIZE                     If defined to be "YES" then Lmod prints properties and warning in color.
 Lmod Web Sites
   Documentation:    http://lmod.readthedocs.org
-  Github:           https://github.com/TACC/Lmod
-  Sourceforge:      https://lmod.sf.net
+  GitHub:           https://github.com/TACC/Lmod
+  SourceForge:      https://lmod.sf.net
   TACC Homepage:    https://www.tacc.utexas.edu/research-development/tacc-projects/lmod
   To report a bug please read http://lmod.readthedocs.io/en/latest/075_bug_reporting.html
-Modules based on Lua: Version 0.9.2  2016-10-25 13:59 -05:00
+Modules based on Lua: Version 8.4.30  2021-04-16 12:06 -05:00
     by Robert McLay mclay@tacc.utexas.edu
 ===========================
 step 4
@@ -210,44 +220,62 @@ Version 9
 step 5
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing --config
 ===========================
-Modules based on Lua: Version 0.9.2  2016-10-25 13:59 -05:00
+Modules based on Lua: Version 8.4.30  2021-04-16 12:06 -05:00
     by Robert McLay mclay@tacc.utexas.edu
-Description                      Value
-Allow TCL modulefiles            yes
-Auto swapping                    yes
-Case Independent Sorting         no
-Colorize Lmod                    @colorize@
-Disable Same Name AutoSwap       no
-Using dotfiles                   @use_dot_files@
-Allow duplicate paths            no
-Require Exact Match/no defaults  no
-Export the module command        @export_module@
-System lua_json                  @have_lua_json@
-System lua-term                  @have_lua_term@
-avail: Include modulepath dir    no
-MODULEPATH_ROOT                  @modulepath_root@
-number of cache dirs             0
-Pager                            @path_to_pager@
-Pager Options                    -XqMREF
-Path to HashSum                  @path_to_hashsum@
-Path to Lua                      @path_to_lua@
-Pin Versions in restore          no
-Pkg Class name                   Pkg
-Lmod prefix                      @PREFIX@
-Prepend order                    @prepend_block@
-Redirect to stdout               no
-Supporting Full Settarg Use      @lmod_full_settarg_support@
-Site Pkg location                standard
-Ignore Cache                     no
-Cached loads                     no
-User cache valid time(sec)       @ancient@
-Write cache after (sec)          @short_time@
-Threshold (sec)                  1
-Tmod prepend PATH Rule           no
+Description                        Value
+Allow root to use Lmod             yes
+Allow TCL modulefiles              yes
+Auto swapping                      yes
+Case Independent Sorting           no
+Colorize Lmod                      yes
+Disable Same Name AutoSwap         no
+Display Extension w/ avail         yes
+Using dotfiles                     yes
+Allow duplicate paths              no
+Require Exact Match/no defaults    no
+Export the module command          yes
+Allow extended default             yes
+Use attached TCL over system call  no
+Use italic instead of dim          no
+KSH Support                        no
+Language used for err/msg/warn     en
+Site message file                  <empty>
+LUA_CPATH                          @sys_lua_cpath@
+LUA_PATH                           @sys_lua_path@
+System lua-term                    no
+avail: Include modulepath dir      no
+MODULEPATH_INIT                    @PKG@/init/.modulespath -> <empty>
+MODULEPATH_ROOT
+number of cache dirs               0
+OS Name                            <N/A>
+Pager                              less
+Pager Options                      -XqMREF
+Path to HashSum                    PATH_to_HASHSUM
+Path to Lua                        lua
+Pin Versions in restore            no
+Pkg Class name                     Pkg
+Lmod prefix                        @PREFIX@
+Site controlled prefix             no
+Prepend order                      normal
+Redirect to stdout                 no
+Supporting Full Settarg Use        no
+User shell                         bash
+Site Name                          <empty>
+Site Pkg location                  standard
+Ignore Cache                       no
+Cached loads                       no
+System Name                        <empty>
+SYSHOST (cluster name)             <empty>
+TCL Version                        <N/A>
+User cache valid time(sec)         86400
+Write cache after (sec)            2
+Threshold (sec)                    1
+Tmod find first rule               no
+Tmod prepend PATH Rule             no
+Tracing                            no
 uname -a
-Does Admin file exist            no
 Active RC file(s):
-ProjectDIR/init/lmodrc.lua
+ProjectDIR/src/../init/lmodrc.lua
  OutputDIR/.lmodrc.lua
  Lmod Property Table:
 propT = {
@@ -256,36 +284,42 @@ propT = {
       gpu = {
         ["color"] = "red",
         ["doc"] = "built for GPU",
+        ["full_color"] = false,
         ["long"] = "(g)",
         ["short"] = "(g)",
       },
       ["gpu:mic"]  = {
         ["color"] = "red",
         ["doc"] = "built natively for MIC and GPU",
+        ["full_color"] = false,
         ["long"] = "(g,m)",
         ["short"] = "(gm)",
       },
       ["gpu:mic:offload"]  = {
         ["color"] = "red",
         ["doc"] = "built natively for MIC and GPU and offload to the MIC",
+        ["full_color"] = false,
         ["long"] = "(g,m,o)",
         ["short"] = "(@)",
       },
       mic = {
         ["color"] = "blue",
         ["doc"] = "built for host and native MIC",
+        ["full_color"] = false,
         ["long"] = "(m)",
         ["short"] = "(m)",
       },
       ["mic:offload"]  = {
         ["color"] = "blue",
         ["doc"] = "built for host, native MIC and offload to the MIC",
+        ["full_color"] = false,
         ["long"] = "(m,o)",
         ["short"] = "(*)",
       },
       offload = {
         ["color"] = "blue",
         ["doc"] = "built for offload to the MIC only",
+        ["full_color"] = false,
         ["long"] = "(o)",
         ["short"] = "(o)",
       },
@@ -350,3 +384,11 @@ propT = {
     },
   },
 }
+===========================
+step 6
+lua ProjectDIR/src/chkJson
+===========================
+configT matches
+rcfileA is a table
+rcfileA has two entries
+propT is a table

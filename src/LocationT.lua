@@ -10,7 +10,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -41,6 +41,7 @@ require("serializeTbl")
 
 local M        = {}
 local dbg      = require("Dbg"):dbg()
+local cosmic   = require("Cosmic"):singleton()
 
 local function merge_locationT(origT, lctnT, v)
    if (v.file) then
@@ -48,7 +49,7 @@ local function merge_locationT(origT, lctnT, v)
          lctnT = {file = v.file }
       end
    end
-   if (next(v.fileT) ~= nil) then
+   if (next(v.fileT) ~= nil and lctnT.file == nil) then
       if (origT == nil or lctnT.fileT == nil) then
          lctnT = {fileT = v.fileT, dirT = lctnT.dirT or {}}
       else
@@ -84,7 +85,7 @@ local function build(moduleA)
       dbg.fini("LocationT build")
       return locationT
    end
-   local T = moduleA[1].T
+   local T = moduleA[1].T or {}
 
    for sn,v in pairs(T) do
       if (v.file) then
@@ -97,7 +98,7 @@ local function build(moduleA)
    end
 
    for i = 2,#moduleA do
-      T = moduleA[i].T
+      T = moduleA[i].T or {}
       for sn, v in pairs(T) do
          local origT   = locationT[sn]
          local lctnT   = locationT[sn] or {}
@@ -124,24 +125,22 @@ function M.locationT(self)
 end
 
 function M.search(self, name)
-   dbg.start{"LocationT:search(",name,")"}
+   --dbg.start{"LocationT:search(",name,")"}
    local locationT = self.__locationT
-   
+
    if (next(locationT) == nil) then
-      dbg.print{"next(locationT) == nil\n"}
-      dbg.fini("LocationT:search")
+      --dbg.print{"next(locationT) == nil\n"}
+      --dbg.fini("LocationT:search")
       return nil, nil, nil
    end
 
-   --if (dbg:active()) then
-   --   io.stderr:write(serializeTbl{indent = true, name = "locationT", value = locationT},"\n")
-   --end
+   dbg.printT("locationT",locationT)
 
 
    -- Find sn from name by looking in locationT and if it is not there
    -- Then remove "/version" from name
 
-   local versionStr = nil
+   local versionStr = false
    local sn         = name
    local v          = nil
    local idx        = nil
@@ -155,7 +154,15 @@ function M.search(self, name)
 
    -- if v is nil then the name was not found so quit
    if (v == nil) then
-      dbg.fini("LocationT:search")
+      --dbg.fini("LocationT:search")
+      return nil
+   end
+
+   if (v.dirT == nil and v.file == nil) then
+      --dbg.print{"sn: ",sn,"\n"}
+      --dbg.printT("locationT", locationT)
+      --dbg.fini("LocationT:search")
+      LmodError{msg="e_LocationT_Srch"}
       return nil
    end
 
@@ -172,7 +179,7 @@ function M.search(self, name)
 
    idx           = 1
    local vStr    = versionStr
-   local done    = (vStr == nil)
+   local done    = (not vStr)
    local jdx     = idx
    local fullStr = versionStr
 
@@ -198,15 +205,14 @@ function M.search(self, name)
       end
    end
 
-   dbg.print{"sn:",sn,", versionStr: ",versionStr,", fullStr: ",fullStr,"\n"}
-   --if (dbg:active()) then
-   --   io.stderr:write(serializeTbl{indent = true, name = "v", value = v},"\n")
-   --end
+   --dbg.print{"sn:",sn,", versionStr: ",versionStr,", fullStr: ",fullStr,"\n"}
+   --dbg.printT("v",v)
 
    local fileA = {}
    fileA[1]    = {}
-   collectFileA(sn, fullStr, v, fileA[1])
-   dbg.fini("LocationT:search")
+   local extended_default = cosmic:value("LMOD_EXTENDED_DEFAULT")
+   collectFileA(sn, fullStr, extended_default, v, fileA[1])
+   --dbg.fini("LocationT:search")
    return sn, versionStr, fileA
 end
 

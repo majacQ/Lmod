@@ -8,7 +8,7 @@
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -32,10 +32,11 @@
 --
 --------------------------------------------------------------------------
 
-require("strict")
-require("capture")
 _G._DEBUG   = false               -- Required by the new lua posix
 local posix = require("posix")
+
+require("strict")
+require("capture")
 
 local getenv = os.getenv
 
@@ -78,7 +79,7 @@ function getUname()
    local machFamilyName   = machName
    local machDescript     = machName
    osName                 = string.gsub(osName,"[ /]","_")
-   if (osName == "Linux" and not masterTbl.noCpuModel) then
+   if (osName == "Linux" and ( machName == "x86_64" or machName:find("i[3-6]86" )) and not masterTbl.noCpuModel) then
       local cpu_family
       local model
       local count = 0

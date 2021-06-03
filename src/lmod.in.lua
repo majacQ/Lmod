@@ -1,4 +1,4 @@
-#!@path_to_lua@/lua
+#!@path_to_lua@
 -- -*- lua -*-
 
 --------------------------------------------------------------------------
@@ -15,7 +15,7 @@
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -30,7 +30,7 @@
 --
 --  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 --  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
---  OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+--  OF MERCHANTABILITY, FITNESS FOR A APRTICULAR PURPOSE AND
 --  NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
 --  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
 --  ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
@@ -57,13 +57,19 @@ package.path   = sys_lua_path
 package.cpath  = sys_lua_cpath
 
 local arg_0    = arg[0]
+_G._DEBUG      = false
 local posix    = require("posix")
 local readlink = posix.readlink
 local stat     = posix.stat
 
 local st       = stat(arg_0)
 while (st.type == "link") do
-   arg_0 = readlink(arg_0)
+   local lnk = readlink(arg_0)
+   if (arg_0:find("/") and (lnk:find("^/") == nil)) then
+      local dir = arg_0:gsub("/[^/]*$","")
+      lnk       = dir .. "/" .. lnk
+   end
+   arg_0 = lnk
    st    = stat(arg_0)
 end
 
@@ -77,6 +83,7 @@ end
 
 package.path  = LuaCommandName_dir .. "?.lua;"       ..
                 LuaCommandName_dir .. "../tools/?.lua;"  ..
+                LuaCommandName_dir .. "../tools/?/init.lua;"  ..
                 LuaCommandName_dir .. "../shells/?.lua;" ..
                 LuaCommandName_dir .. "?/init.lua;"  ..
                 sys_lua_path
@@ -113,17 +120,18 @@ local BaseShell     = require("BaseShell")
 local BeautifulTbl  = require("BeautifulTbl")
 local Exec          = require("Exec")
 local FrameStk      = require("FrameStk")
-
 local Options       = require("Options")
 local Var           = require("Var")
 local Version       = require("Version")
 local concatTbl     = table.concat
+local cosmic        = require("Cosmic"):singleton()
 local dbg           = require("Dbg"):dbg()
 local hook          = require("Hook")
 local getenv        = os.getenv
+local i18n          = require("i18n")
 local max           = math.max
 local timer         = require("Timer"):singleton()
-local unpack        = (_VERSION == "Lua 5.1") and unpack or table.unpack
+local unpack        = (_VERSION == "Lua 5.1") and unpack or table.unpack -- luacheck: compat
 
 local s_Usage       = false
 --------------------------------------------------------------------------
@@ -137,85 +145,78 @@ function Usage()
    local banner  = Banner:singleton()
    local line    = banner:border(2)
    local a = {}
-   a[#a+1] = { "module [options] sub-command [args ...]" }
+   a[#a+1] = { i18n("usage_cmdline") }
    a[#a+1] = { "" }
-   a[#a+1] = { "Help sub-commands:" }
-   a[#a+1] = { "------------------" }
-   a[#a+1] = { "  help", "",            "prints this message"}
-   a[#a+1] = { "  help", "module [...]","print help message from module(s)"}
+   a[#a+1] = { i18n("help_title") }
+   a[#a+1] = { "  help", "",            i18n("help1")}
+   a[#a+1] = { "  help", "module [...]",i18n("help2")}
    a[#a+1] = { "" }
-   a[#a+1] = { "Loading/Unloading sub-commands:" }
-   a[#a+1] = { "-------------------------------" }
-   a[#a+1] = { "  load | add",         "module [...]",  "load module(s)"}
-   a[#a+1] = { "  try-load | try-add", "module [...]",  "Add module(s), do not complain if not found"}
-   a[#a+1] = { "  del | unload",       "module [...]",  "Remove module(s), do not complain if not found"}
-   a[#a+1] = { "  swap | sw | switch", "m1 m2",         "unload m1 and load m2" }
-   a[#a+1] = { "  purge",              "",              "unload all modules"}
-   a[#a+1] = { "  refresh",            "",              "reload aliases from current list of modules."}
-   a[#a+1] = { "  update",             "",              "reload all currently loaded modules."}
+   a[#a+1] = { i18n("load_title") }
+   a[#a+1] = { "  load | add",         "module [...]",  i18n("load1")}
+   a[#a+1] = { "  try-load | try-add", "module [...]",  i18n("load2")}
+   a[#a+1] = { "  del | unload",       "module [...]",  i18n("load3")}
+   a[#a+1] = { "  swap | sw | switch", "m1 m2",         i18n("load4")}
+   a[#a+1] = { "  purge",              "",              i18n("load5")}
+   a[#a+1] = { "  refresh",            "",              i18n("load6")}
+   a[#a+1] = { "  update",             "",              i18n("load7")}
    a[#a+1] = { "" }
-   a[#a+1] = { "Listing / Searching sub-commands:" }
-   a[#a+1] = { "---------------------------------" }
-   a[#a+1] = { "  list",         "",             "List loaded modules"}
-   a[#a+1] = { "  list",         "s1 s2 ...",    "List loaded modules that match the pattern"}
-   a[#a+1] = { "  avail | av",   "",             "List available modules"}
-   a[#a+1] = { "  avail | av",   "string",       "List available modules that contain \"string\"."}
-   a[#a+1] = { "  spider",       "",             "List all possible modules"}
-   a[#a+1] = { "  spider",       "module",       "List all possible version of that module file"}
-   a[#a+1] = { "  spider",       "string",       "List all module that contain the \"string\"."}
-   a[#a+1] = { "  spider",       "name/version", "Detailed information about that version of the module."}
-   a[#a+1] = { "  whatis",       "module",       "Print whatis information about module"}
-   a[#a+1] = { "  keyword | key","string",       "Search all name and whatis that contain \"string\"."}
+   a[#a+1] = { i18n("list_title") }
+   a[#a+1] = { "  list",         "",             i18n("list1")  }
+   a[#a+1] = { "  list",         "s1 s2 ...",    i18n("list2")  }
+   a[#a+1] = { "  avail | av",   "",             i18n("list3")  }
+   a[#a+1] = { "  avail | av",   "string",       i18n("list4")  }
+   a[#a+1] = { "  spider",       "",             i18n("list5")  }
+   a[#a+1] = { "  spider",       "module",       i18n("list6")  }
+   a[#a+1] = { "  spider",       "string",       i18n("list7")  }
+   a[#a+1] = { "  spider",       "name/version", i18n("list8")  }
+   a[#a+1] = { "  whatis",       "module",       i18n("list9")  }
+   a[#a+1] = { "  keyword | key","string",       i18n("list10") }
    a[#a+1] = { "" }
-   a[#a+1] = { "Searching with Lmod:"}
-   a[#a+1] = { "--------------------" }
-   a[#a+1] = { "  All searching (spider, list, avail, keyword) support regular expressions:"}
+   a[#a+1] = { i18n("srch_title") }
+   a[#a+1] = { i18n("srch0") }
+   a[#a+1] = { "  "}
    a[#a+1] = { "" }
-   a[#a+1] = { "  spider -r ", "'^p'",  "Finds all the modules that start with `p' or `P'"}
-   a[#a+1] = { "  spider -r ", "mpi",   "Finds all modules that have \"mpi\" in their name."}
-   a[#a+1] = { "  spider -r ", "'mpi$", "Finds all modules that end with \"mpi\" in their name."}
+   a[#a+1] = { "  -r spider ", "'^p'",  i18n("srch1") }
+   a[#a+1] = { "  -r spider ", "mpi",   i18n("srch2") }
+   a[#a+1] = { "  -r spider ", "'mpi$", i18n("srch3") }
    a[#a+1] = { "" }
-   a[#a+1] = { "Handling a collection of modules:"}
-   a[#a+1] = { "--------------------------------" }
-   a[#a+1] = { "  save | s",    "",       "Save the current list of modules to a user defined \"default\" collection."}
-   a[#a+1] = { "  save | s",    "name",   "Save the current list of modules to \"name\" collection."}
-   a[#a+1] = { "  reset",     "",        "The same as \"restore system\""}
-   a[#a+1] = { "  restore | r", "",       "Restore modules from the user's \"default\" or system default."}
-   a[#a+1] = { "  restore | r", "name",   "Restore modules from \"name\" collection."}
-   a[#a+1] = { "  restore",     "system", "Restore module state to system defaults."}
-   a[#a+1] = { "  savelist",    "",       "List of saved collections."}
-   a[#a+1] = { "  describe | mcc",  "name",  "Describe the contents of a module collection."}
+   a[#a+1] = { i18n("collctn_title") }
+   a[#a+1] = { "  save | s",    "",         i18n("collctn1") }
+   a[#a+1] = { "  save | s",    "name",     i18n("collctn2") }
+   a[#a+1] = { "  reset",     "",           i18n("collctn3") }
+   a[#a+1] = { "  restore | r", "",         i18n("collctn4") }
+   a[#a+1] = { "  restore | r", "name",     i18n("collctn5") }
+   a[#a+1] = { "  restore",     "system",   i18n("collctn6") }
+   a[#a+1] = { "  savelist",    "",         i18n("collctn7") }
+   a[#a+1] = { "  describe | mcc",  "name", i18n("collctn8") }
+   a[#a+1] = { "  disable",         "name", i18n("collctn9") }
    a[#a+1] = { "" }
-   a[#a+1] = { "Deprecated commands:"}
-   a[#a+1] = { "--------------------"}
-   a[#a+1] = { "  getdefault", "[name]", "load name collection of modules or "..
-                                         "user's \"default\" if no name given."}
-   a[#a+1] = { "",            "",        "===> Use \"restore\" instead  <===="}
-   a[#a+1] = { "  setdefault","[name]",  "Save current list of modules to name if given, "..
-                                         "otherwise save as the default list for you the user."}
-   a[#a+1] = { "",            "",        "===> Use \"save\" instead. <===="}
+   a[#a+1] = { i18n("depr_title") }
+   a[#a+1] = { "  getdefault", "[name]", i18n("depr1") }
+   a[#a+1] = { "",            "",        i18n("depr2") }
+   a[#a+1] = { "  setdefault","[name]",  i18n("depr3") }
+   a[#a+1] = { "",            "",        i18n("depr4") }
    a[#a+1] = { "" }
-   a[#a+1] = { "Miscellaneous sub-commands:"}
-   a[#a+1] = { "---------------------------"}
-   a[#a+1] = { "  show",     "modulefile", "show the commands in the module file."}
-   a[#a+1] = { "  use [-a]", "path",       "Prepend or Append path to MODULEPATH."}
-   a[#a+1] = { "  unuse",    "path",       "remove path from MODULEPATH."}
-   a[#a+1] = { "  tablelist","",           "output list of active modules as a lua table."}
+   a[#a+1] = { i18n("misc_title") }
+   a[#a+1] = { "  is-loaded", "modulefile", i18n("misc_isLoaded") }
+   a[#a+1] = { "  is-avail",  "modulefile", i18n("misc_isAvail") }
+   a[#a+1] = { "  show",      "modulefile", i18n("misc1") }
+   a[#a+1] = { "  use [-a]",  "path",       i18n("misc2") }
+   a[#a+1] = { "  unuse",     "path",       i18n("misc3") }
+   a[#a+1] = { "  tablelist", "",           i18n("misc4") }
    a[#a+1] = { "" }
-   a[#a+1] = { "Important Environment Variables:"}
-   a[#a+1] = { "--------------------------------"}
-   a[#a+1] = { "  LMOD_COLORIZE", "", "If defined to be \"YES\" then Lmod prints "..
-                                      "properties and warning in color."}
+   a[#a+1] = { i18n("env_title") }
+   a[#a+1] = { "  LMOD_COLORIZE", "",      i18n("env1") }
    a[#a+1] = { "" }
    a[#a+1] = { line}
-   a[#a+1] = { "Lmod Web Sites"}
+   a[#a+1] = { i18n("web_sites") }
    a[#a+1] = { "" }
    a[#a+1] = { "  Documentation:    http://lmod.readthedocs.org"}
-   a[#a+1] = { "  Github:           https://github.com/TACC/Lmod"}
-   a[#a+1] = { "  Sourceforge:      https://lmod.sf.net"}
+   a[#a+1] = { "  GitHub:           https://github.com/TACC/Lmod"}
+   a[#a+1] = { "  SourceForge:      https://lmod.sf.net"}
    a[#a+1] = { "  TACC Homepage:    https://www.tacc.utexas.edu/research-development/tacc-projects/lmod"}
    a[#a+1] = { "" }
-   a[#a+1] = { "  To report a bug please read "..webBR }
+   a[#a+1] = { i18n("rpt_bug")..webBR }
    a[#a+1] = { line }
 
 
@@ -252,7 +253,7 @@ function main()
    local listTbl      = { name = "list",        checkMPATH = false, cmd = List          }
    local loadTbl      = { name = "load",        checkMPATH = true,  cmd = Load_Usr      }
    local mcTbl        = { name = "describe",    checkMPATH = false, cmd = CollectionLst }
-   local purgeTbl     = { name = "purge",       checkMPATH = true,  cmd = Purge         }
+   local purgeTbl     = { name = "purge",       checkMPATH = true,  cmd = Purge_Usr     }
    local refreshTbl   = { name = "refresh",     checkMPATH = false, cmd = Refresh       }
    local resetTbl     = { name = "reset",       checkMPATH = true,  cmd = Reset         }
    local restoreTbl   = { name = "restore",     checkMPATH = false, cmd = Restore       }
@@ -268,52 +269,69 @@ function main()
    local unuseTbl     = { name = "unuse",       checkMPATH = true,  cmd = UnUse         }
    local updateTbl    = { name = "update",      checkMPATH = true,  cmd = Update        }
    local useTbl       = { name = "use",         checkMPATH = true,  cmd = Use           }
+   local disableTbl   = { name = "disable",     checkMPATH = false, cmd = Disable       }
    local whatisTbl    = { name = "whatis",      checkMPATH = false, cmd = Whatis        }
+   local isLoadedTbl  = { name = "isLoaded",    checkMPATH = false, cmd = IsLoaded      }
+   local isAvailTbl   = { name = "isAvail",     checkMPATH = false, cmd = IsAvail       }
 
    local lmodCmdA = {
-      {'^ad'      , loadTbl       },
-      {'^ap'      , keywordTbl    },
-      {'^av'      , availTbl      },
-      {'^del'     , unloadTbl     },
-      {'^des'     , mcTbl         },
-      {'^dis'     , showTbl       },
-      {'^era'     , unloadTbl     },
-      {'^gd'      , gdTbl         },
-      {'^getd'    , gdTbl         },
-      {'^h'       , helpTbl       },
-      {'^k'       , keywordTbl    },
-      {'^ld'      , savelistTbl   },
-      {'^listd'   , savelistTbl   },
-      {'^lo'      , loadTbl       },
-      {'^l'       , listTbl       },
-      {'^mc'      , mcTbl         },
-      {'^pu'      , purgeTbl      },
-      {'^refr'    , refreshTbl    },
-      {'^rel'     , updateTbl     },
-      {'^rem'     , unloadTbl     },
-      {'^rese'    , resetTbl      },
-      {'^rm'      , unloadTbl     },
-      {'^r'       , restoreTbl    },
-      {'^savel'   , savelistTbl   },
-      {'^sd'      , saveTbl       },
-      {'^sea'     , searchTbl     },
-      {'^setd'    , saveTbl       },
-      {'^sh'      , showTbl       },
-      {'^sl'      , savelistTbl   },
-      {'^sp'      , spiderTbl     },
-      {'^sw'      , swapTbl       },
-      {'^s'       , saveTbl       },
-      {'^table'   , tblLstTbl     },
-      {'^try'     , tryAddTbl     },
-      {'^unuse$'  , unuseTbl      },
-      {'^un'      , unloadTbl     },
-      {'^up'      , updateTbl     },
-      {'^use$'    , useTbl        },
-      {'^w'       , whatisTbl     },
-   }  
+      {cmd = 'add',          min = 2, action = loadTbl     },
+      {cmd = 'avail',        min = 2, action = availTbl    },
+      {cmd = 'delete',       min = 3, action = unloadTbl   },
+      {cmd = 'describe',     min = 3, action = mcTbl       },
+      {cmd = 'disable',      min = 4, action = disableTbl  },
+      {cmd = 'display',      min = 3, action = showTbl     },
+      {cmd = 'erase',        min = 3, action = unloadTbl   },
+      {cmd = 'gd',           min = 2, action = gdTbl       },
+      {cmd = 'getdefault',   min = 4, action = gdTbl       },
+      {cmd = 'help',         min = 1, action = helpTbl     },
+      {cmd = 'isAvail',      min = 3, action = isAvailTbl  },
+      {cmd = 'isavail',      min = 3, action = isAvailTbl  },
+      {cmd = 'is_avail',     min = 4, action = isAvailTbl  },
+      {cmd = 'is-avail',     min = 4, action = isAvailTbl  },
+      {cmd = 'isLoaded',     min = 3, action = isLoadedTbl },
+      {cmd = 'isloaded',     min = 3, action = isLoadedTbl },
+      {cmd = 'is_loaded',    min = 4, action = isLoadedTbl },
+      {cmd = 'is-loaded',    min = 4, action = isLoadedTbl },
+      {cmd = 'keyword',      min = 1, action = keywordTbl  },
+      {cmd = 'ld',           min = 2, action = savelistTbl },
+      {cmd = 'listdefaults', min = 5, action = savelistTbl },
+      {cmd = 'load',         min = 2, action = loadTbl     },
+      {cmd = 'list',         min = 1, action = listTbl     },
+      {cmd = 'mcc',          min = 2, action = mcTbl       },
+      {cmd = 'purge',        min = 2, action = purgeTbl    },
+      {cmd = 'refresh',      min = 4, action = refreshTbl  },
+      {cmd = 'reload',       min = 3, action = updateTbl   },
+      {cmd = 'remove',       min = 3, action = unloadTbl   },
+      {cmd = 'reset',        min = 4, action = resetTbl    },
+      {cmd = 'rm',           min = 2, action = unloadTbl   },
+      {cmd = 'restore',      min = 1, action = restoreTbl  },
+      {cmd = 'savelist',     min = 5, action = savelistTbl },
+      {cmd = 'sd',           min = 2, action = saveTbl     },
+      {cmd = 'search',       min = 3, action = searchTbl   },
+      {cmd = 'setdefault',   min = 4, action = saveTbl     },
+      {cmd = 'show',         min = 2, action = showTbl     },
+      {cmd = 'sl',           min = 2, action = savelistTbl },
+      {cmd = 'spider',       min = 2, action = spiderTbl   },
+      {cmd = 'swap',         min = 2, action = swapTbl     },
+      {cmd = 'switch',       min = 2, action = swapTbl     },
+      {cmd = 'save',         min = 1, action = saveTbl     },
+      {cmd = 'tablelist',    min = 5, action = tblLstTbl   },
+      {cmd = 'try-load',     min = 5, action = tryAddTbl   },
+      {cmd = 'try-add',      min = 5, action = tryAddTbl   },
+      {cmd = 'try_load',     min = 5, action = tryAddTbl   },
+      {cmd = 'try_add',      min = 5, action = tryAddTbl   },
+      {cmd = 'tryload',      min = 4, action = tryAddTbl   },
+      {cmd = 'tryadd',       min = 4, action = tryAddTbl   },
+      {cmd = 'try',          min = 3, action = tryAddTbl   },
+      {cmd = 'unload',       min = 3, action = unloadTbl   },
+      {cmd = 'unuse',        min = 3, action = unuseTbl    },
+      {cmd = 'update',       min = 2, action = updateTbl   },
+      {cmd = 'use',          min = 3, action = useTbl      },
+      {cmd = 'whatis',       min = 1, action = whatisTbl   },
+   }
 
-   MCP = MasterControl.build("load")
-   mcp = MasterControl.build("load")
+   build_i18n_messages()
    dbg.set_prefix(colorize("red","Lmod"))
 
    local shellNm = barefilename(arg[1])
@@ -324,10 +342,12 @@ function main()
    end
 
    local masterTbl = masterTbl()
+   MCP = MasterControl.build("load")
+   mcp = MasterControl.build("load")
 
    -- Push Lmod version into environment
    setenv_lmod_version()
-   
+
    ------------------------------------------------------------------------
    --  The StandardPackage is where Lmod registers hooks.  Sites may
    --  override the hook functions in SitePackage.
@@ -360,6 +380,7 @@ function main()
    if (masterTbl.debug > 0 or masterTbl.dbglvl) then
       local configuration = require("Configuration"):singleton()
       io.stderr:write(configuration:report())
+      masterTbl.dbglvl = (type(masterTbl.dbglvl) == "number") and masterTbl.dbglvl or 1
       local dbgLevel = max(masterTbl.debug, masterTbl.dbglvl or 1)
       dbg:activateDebug(dbgLevel)
    end
@@ -370,11 +391,29 @@ function main()
       dbg.print{"Hostname: ",posix.uname("%n"),"\n"}
       dbg.print{"System: ",posix.uname("%s")," ",posix.uname("%r"),"\n"}
       dbg.print{"Version: ",posix.uname("%v"),"\n"}
+      dbg.print{"Lua Version: ", _VERSION:sub(5,-1),"\n"}
       dbg.print{"Lmod Version: ",Version.name(),"\n"}
       dbg.print{"package.path: ",package.path,"\n"}
+      dbg.print{"package.cpath: ",package.cpath,"\n"}
       dbg.print{"lmodPath: ", lmodPath,"\n"}
    end
    -- dumpversion and quit if requested.
+
+   -- Build Shell object from shellNm
+   Shell = BaseShell:build(shellNm)
+   dbg.print{"shellNm: ",shellNm,", Shell:name(): ",Shell:name(),"\n"}
+
+   local tracing = cosmic:value("LMOD_TRACING")
+   if (tracing == "yes" ) then
+      local a   = {}
+      a[#a + 1] = "Lmod version: "
+      a[#a + 1] = Version.name()
+      a[#a + 1] = "\n"
+      a[#a + 1] = "running: module "
+      a[#a + 1] = concatTbl(arg," ")
+      a[#a + 1] = "\n"
+      Shell:echo(concatTbl(a,""))
+   end
 
    if (masterTbl.dumpversion) then
       io.stderr:write(Version.tag(),"\n")
@@ -409,29 +448,42 @@ function main()
       os.exit(0)
    end
 
+   -- dump Configuration in json and quit.
+   if (masterTbl.configjson) then
+      local configuration = require("Configuration"):singleton()
+      local a = {}
+      a[#a+1] = configuration:report_json()
+      a[#a+1] = ""
+      io.stderr:write(concatTbl(a,"\n"))
+      os.exit(0)
+   end
+
    ------------------------------------------------------------
    -- Search for command, quit if command is unknown.
-   local cmdT = false
+   local cmdT    = false
+   local cmdName = false
    if (userCmd) then
+      local uLen = userCmd:len()
       for _, v in ipairs(lmodCmdA) do
-         if (userCmd:find(v[1])) then
-            cmdT = v[2]
+         local found = userCmd:find(v.cmd:sub(1,uLen),1,true)
+         if (found == 1 and uLen >= v.min) then
+            cmdT = v.action
+            cmdName = cmdT.name
             break
          end
       end
    end
 
-   hook.apply("startup", userCmd)
+   hook.apply("startup", cmdName)
 
    local checkMPATH = (cmdT) and cmdT.checkMPATH or false
    dbg.print{"Calling Master:singleton(checkMPATH) w checkMPATH: ",checkMPATH,"\n"}
    master = Master:singleton(checkMPATH)
 
-   -- Build Shell object from shellNm
-   Shell = BaseShell:build(shellNm)
-   dbg.print{"shellNm: ",shellNm,", Shell:name(): ",Shell:name(),"\n"}
-
    if (masterTbl.checkSyntax) then
+      MCP = MasterControl.build("checkSyntax")
+      mcp = MasterControl.build("checkSyntax")
+      setSyntaxMode(true)
       Shell:setActive(false)
    end
 
@@ -462,27 +514,38 @@ function main()
 
    ------------------------------------------------------------
    -- After running command reset frameStk and mt as the
-   -- frameStk can be cleared during commands.  Also 
+   -- frameStk can be cleared during commands.  Also
    -- the module table (mt) is also on the frame stack
    -- and must be re-initialized!
    local frameStk = FrameStk:singleton()
    local mt       = frameStk:mt()
 
+   --------------------------------------------------------
    -- Report any admin messages associated with loads
    -- Note that is safe to run every time.
    mcp:reportAdminMsgs()
 
+   --------------------------------------------------------
+   -- Report any missing dependent modules
+   -- Note that is safe to run every time.
+   mcp:reportMissingDepModules()
 
    -- Report any changes (worth reporting from original MT)
    if (not quiet()) then
       mt:reportChanges()
    end
-   
+
    local varT     = frameStk:varT()
    local n        = mt:name()
    varT[n]        = Var:new(n)
    varT[n]:set(mt:serializeTbl())
 
+   local vPATH = varT["PATH"]
+   if (vPATH) then
+      vPATH:prt();
+   end
+
+   hook.apply("finalize", cmdName)
    ExitHookA.apply()
    dbg.fini("lmod")
 
@@ -491,7 +554,7 @@ function main()
 
    if (Shell:real_shell())then
       Exec:exec():expand()
-   end   
+   end
 
    local t2 = epoch()
    timer:deltaT("main", t2 - t1)

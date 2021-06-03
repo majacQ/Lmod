@@ -8,7 +8,7 @@
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -75,6 +75,18 @@ end
 function Perl.unset(self, k, vType)
    stdout:write("delete $ENV{",k,"};\n")
    dbg.print{   "delete $ENV{",k,"};\n"}
+end
+
+function Perl.report_failure(self)
+   local line = "$_mlstatus = 0;\n"
+   stdout:write(line)
+   dbg.print{   line}
+end
+
+function Perl.report_success(self)
+   local line = "$_mlstatus = 1;\n"
+   stdout:write(line)
+   dbg.print{   line}
 end
 
 return Perl

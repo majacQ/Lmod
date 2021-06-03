@@ -2,46 +2,55 @@
 step 1
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing --version
 ===========================
-Modules based on Lua: Version 0.8.4  2016-10-21 21:22 -05:00
+Modules based on Lua: Version 8.4.19  2020-12-13 13:58 -06:00
     by Robert McLay mclay@tacc.utexas.edu
 ===========================
 step 2
-lua ProjectDIR/src/lmod.in.lua bash --regression_testing load A
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing load C openfoam
 ===========================
 ===========================
 step 3
-lua ProjectDIR/src/lmod.in.lua bash --regression_testing load B
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing purge
 ===========================
 ===========================
 step 4
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing load A
+===========================
+===========================
+step 5
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing load B
+===========================
+===========================
+step 6
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing list
 ===========================
 Currently Loaded Modules:
   1) A/1.0   2) B/1.0
 ===========================
-step 5
+step 7
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing unload B
 ===========================
 ===========================
-step 6
+step 8
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing load B
 ===========================
 Lmod has detected the following error: The following module(s) are unknown: "B"
 Please check the spelling or version number. Also try "module spider ..."
-It is also possible your cache file is out-of-date try:
-   module --ignore-cache load "B"
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore_cache load "B"
+Also make sure that all modulefiles written in TCL start with the string #%Module
 ===========================
-step 7
+step 9
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing list
 ===========================
 Currently Loaded Modules:
   1) A/1.0
 ===========================
-step 8
+step 10
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing load B
 ===========================
 ===========================
-step 9
+step 11
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing list
 ===========================
 Currently Loaded Modules:

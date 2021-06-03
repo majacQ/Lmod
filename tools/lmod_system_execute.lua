@@ -2,11 +2,14 @@
 -- use io.popen to open a pipe to collect the output of a command.
 -- @module capture
 
+_G._DEBUG          = false                       -- Required by luaposix 33
+local posix        = require("posix")
+
 require("strict")
 
 ------------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -32,10 +35,9 @@ require("strict")
 
 
 local dbg          = require("Dbg"):dbg()
-_G._DEBUG          = false                       -- Required by luaposix 33
-local posix        = require("posix")
 local getenv       = os.getenv
 local setenv_posix = posix.setenv
+local cosmic       = require("Cosmic"):singleton()
 
 function lmod_system_execute(cmd)
    dbg.start{"lmod_system_execute(",cmd,")"}
@@ -46,16 +48,15 @@ function lmod_system_execute(cmd)
    local newT = {}
    local envT = {}
 
-   envT["LD_LIBRARY_PATH"] = LMOD_LD_LIBRARY_PATH or ""
-   envT["LD_PRELOAD"]      = LMOD_LD_PRELOAD      or ""
-
+   envT["LD_LIBRARY_PATH"] = cosmic:value("LMOD_LD_LIBRARY_PATH") or ""
+   envT["LD_PRELOAD"]      = cosmic:value("LMOD_LD_PRELOAD")      or ""
 
    for k, v in pairs(envT) do
       newT[k] = getenv(k)
       setenv_posix(k, v, true)
    end
 
-   os.execute(cmd) 
+   os.execute(cmd)
 
    for k, v in pairs(newT) do
       setenv_posix(k,v, true)

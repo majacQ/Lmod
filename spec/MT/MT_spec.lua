@@ -1,11 +1,13 @@
 _G._DEBUG=false
+local posix     = require("posix")
+
 require("strict")
 require("fileOps")
 require("deepcopy")
 local MName     = require("MName")
 local MT        = require("MT")
+local cosmic    = require("Cosmic"):singleton()
 local dbg       = require("Dbg"):dbg()
-local posix     = require("posix")
 local testDir   = "spec/MT"
 
 describe("Testing MT Class #MT.",
@@ -15,7 +17,8 @@ describe("Testing MT Class #MT.",
                   local mpath = pathJoin("%ProgDir%", testDir, "mf")
                   posix.setenv("MODULEPATH", mpath, true)
                   posix.setenv("LMOD_MAXDEPTH", nil, true)
-                  _G.LMOD_MAXDEPTH = nil
+                  cosmic:assign("LMOD_MAXDEPTH", false)
+                  --dbg:activateDebug(1)
                   local mt = MT:singleton{testing=true}
                   local entryA = {
                      {
@@ -56,16 +59,20 @@ describe("Testing MT Class #MT.",
                            ["fullName"] = "icr/64/3.8",
                            ["loadOrder"] = 1,
                            propT = { arch = { mic = 1},},
+                           ["stackDepth"] = 0,
                            ["status"] = "active",
                            ["userName"] = "icr/64",
+                           ["wV"] = false,
                         },
                         TACC = {
                            ["fn"] = "%ProjDir%/spec/MT/mf/TACC.lua",
                            ["fullName"] = "TACC",
                            ["loadOrder"] = 2,
                            propT = {},
+                           ["stackDepth"] = 0,
                            ["status"] = "active",
                            ["userName"] = "TACC",
+                           ["wV"] = false,
                         },
                      },
                      mpathA = {
@@ -77,6 +84,8 @@ describe("Testing MT Class #MT.",
                   }
                   local projDir = os.getenv("PROJDIR")
                   local rplmntA = { {projDir,"%%ProjDir%%"} }
+
+
 
                   local _mt     = deepcopy(mt)
                   local __mt    = {}
@@ -114,7 +123,7 @@ describe("Testing MT Class #MT.",
                   activeA       = mt:list("fullName","active")
                   resultA       = {activeA[1].name, activeA[2].name}
                   assert.are.same(goldA, resultA)
-                  
+
 
                   ------------------------------------------------------------
                   -- Test if the ModuleTable can be pushed to the environment
@@ -138,8 +147,9 @@ describe("Testing MT Class #MT.",
 
                   -- Remove MT that was pushed to the environment
                   __removeEnvMT()
-               end)
+               end
+            )
          end
 )
 
-                     
+

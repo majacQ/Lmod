@@ -1,4 +1,4 @@
-#!@path_to_lua@/lua
+#!@path_to_lua@
 -- -*- lua -*-
 
 --------------------------------------------------------------------------
@@ -15,7 +15,7 @@
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -56,13 +56,19 @@ package.path   = sys_lua_path
 package.cpath  = sys_lua_cpath
 
 local arg_0    = arg[0]
+_G._DEBUG      = false
 local posix    = require("posix")
 local readlink = posix.readlink
 local stat     = posix.stat
 
 local st       = stat(arg_0)
 while (st.type == "link") do
-   arg_0 = readlink(arg_0)
+   local lnk = readlink(arg_0)
+   if (arg_0:find("/") and (lnk:find("^/") == nil)) then
+      local dir = arg_0:gsub("/[^/]*$","")
+      lnk       = dir .. "/" .. lnk
+   end
+   arg_0 = lnk
    st    = stat(arg_0)
 end
 
@@ -72,19 +78,19 @@ if (ia) then
    LuaCommandName_dir = arg_0:sub(1,ja)
 end
 
-package.path  = LuaCommandName_dir .. "../tools/?.lua;"   ..
-                LuaCommandName_dir .. "../shells/?.lua;"  ..
-                LuaCommandName_dir .. "?.lua;"            ..
+package.path  = LuaCommandName_dir .. "../tools/?.lua;"      ..
+                LuaCommandName_dir .. "../tools/?/init.lua;" ..
+                LuaCommandName_dir .. "../shells/?.lua;"     ..
+                LuaCommandName_dir .. "?.lua;"               ..
                 sys_lua_path
-package.cpath = sys_lua_cpath
+package.cpath = LuaCommandName_dir .. "../lib/?.so;"..
+                sys_lua_cpath
 
 function cmdDir()
    return LuaCommandName_dir
 end
 
 Version = "1.0"
-HashSum = "@path_to_hashsum@"
-
 require("strict")
 require("myGlobals")
 require("utils")
@@ -101,8 +107,10 @@ BaseShell         = require("BaseShell")
 Master            = require("Master")
 
 local FrameStk    = require("FrameStk")
+local MT          = require("MT")
 local MName       = require("MName")
 local Optiks      = require("Optiks")
+local cosmic      = require("Cosmic"):singleton()
 local concatTbl   = table.concat
 local dbg         = require("Dbg"):dbg()
 local fh          = nil
@@ -115,6 +123,7 @@ end
 
 
 function main()
+   __removeEnvMT()  -- Wipe the ModuleTable in the environment so that it doesn't pollute isloaded()!
    local master    = Master:singleton(false)
    local frameStk  = FrameStk:singleton()
    local shellNm   = "bash"
@@ -123,7 +132,7 @@ function main()
    fh              = io.open(tmpfn,"w")
    local i         = 1
    local masterTbl = masterTbl()
-   
+
    options()
 
    if (masterTbl.debug) then
@@ -168,15 +177,12 @@ function main()
       io.stderr:write(s)
    end
    fh:write(s)
-   if (HashSum:sub(1,1) == "@" ) then
-      HashSum = find_exec_path("sha1sum") or find_exec_path("shasum")
-   end
    fh:close()
+   local HashSum = cosmic:value("LMOD_HASHSUM_PATH")
 
    if (HashSum == nil) then
-      LmodSystemError("Unable to compute hashsum")
+      LmodSystemError{msg="e_Failed_Hashsum"}
    end
-   
 
    local result = capture(HashSum .. " " .. tmpfn)
    os.remove(tmpfn)

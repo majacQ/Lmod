@@ -1,3 +1,6 @@
+_G._DEBUG          = false
+local posix        = require("posix")
+
 require("strict")
 
 --------------------------------------------------------------------------
@@ -10,7 +13,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -40,11 +43,12 @@ require("myGlobals")
 require("pairsByKeys")
 require("string_utils")
 
-_G._DEBUG          = false
 local Version      = require("Version")
+local access       = posix.access
 local arg_0        = arg[0]
 local base64       = require("base64")
 local concatTbl    = table.concat
+local cosmic       = require("Cosmic"):singleton()
 local dbg          = require("Dbg"):dbg()
 local decode64     = base64.decode64
 local encode64     = base64.encode64
@@ -53,7 +57,6 @@ local getenv       = os.getenv
 local huge         = math.huge
 local min          = math.min
 local open         = io.open
-local posix        = require("posix")
 local readlink     = posix.readlink
 local setenv_posix = posix.setenv
 local stat         = posix.stat
@@ -63,8 +66,8 @@ local strfmt       = string.format
 -- This is 5.1 Lua function to cover the table.pack function
 -- that is in Lua 5.2 and later.
 function argsPack(...)
-   local arg = { n = select("#", ...), ...}
-   return arg
+   local argA = { n = select("#", ...), ...}
+   return argA
 end
 pack     = (_VERSION == "Lua 5.1") and argsPack or table.pack
 
@@ -80,12 +83,16 @@ end
 -- Generate a message that will fix the available terminal width.
 -- @param width The terminal width
 function buildMsg(width, ... )
-   local arg = pack(...)
-   local a   = {}
-   local len = 0
+   local argA = pack(...)
+   local a    = {}
+   local len  = 0
 
-   for idx = 1, arg.n do
-      local block  = arg[idx]
+   if (argA.n == 1 and argA[1]:len() <= width) then
+      return argA[1]
+   end
+
+   for idx = 1, argA.n do
+      local block  = argA[idx] or ""
       local done   = false
       while (not done) do
          local hasNL  = false
@@ -135,7 +142,7 @@ function buildMsg(width, ... )
          if (a[#a] == " ") then
             a[#a] = nil
          end
-         local last = a[#a]:sub(-1)
+         local last = (a[#a] or " "):sub(-1)
          if (last ~= '"' and last ~= "\n") then
             a[#a + 1] = " "
          end
@@ -169,7 +176,36 @@ function build_MT_envT(vstr)
    return t
 end
 
-   
+function build_i18n_messages()
+   local i18n      = require("i18n")
+   local en_msg_fn = pathJoin(cmdDir(),"../messageDir/en.lua")
+   if (isFile(en_msg_fn)) then
+      i18n.loadFile(en_msg_fn)
+   else
+      io.stderr:write("Unable to open English message file: ",en_msg_fn,"\n")
+      os.exit(1)
+   end
+
+   local lmod_lang = cosmic:value("LMOD_LANG")
+   if (lmod_lang ~= "en") then
+      local msg_fn = pathJoin(cmdDir(),"../messageDir",lmod_lang .. ".lua")
+      if (isFile(msg_fn)) then
+         i18n.loadFile(msg_fn)
+      else
+         lmod_lang = "en"
+      end
+   end
+
+   local site_msg_fn = cosmic:value("LMOD_SITE_MSG_FILE")
+   if (site_msg_fn and isFile(site_msg_fn)) then
+      lmod_lang = "site"
+      i18n.loadFile(site_msg_fn)
+   end
+   i18n.setLocale(lmod_lang)
+end
+
+
+
 ------------------------------------------------------------
 -- Only define the cmdDir function here if it hasn't already
 -- been defined. It is defined in the main program unless
@@ -182,34 +218,63 @@ if (not _G.cmdDir) then
 end
 
 --------------------------------------------------------------------------
+-- findLuaProg: Return the path to the lua command or die
+function findLuaProg()
+   local luaprog, found = "@path_to_lua@", false
+   if (luaprog:sub(1,1) == "@") then
+      luaprog, found = findInPath("lua")
+   else
+      found = isFile(luaprog) and posix.access(luaprog, "x")
+   end
+   if (not found) then
+      LmodError{msg="e_Failed_2_Find", name = "lua"}
+   end
+   return luaprog
+end
+
+--------------------------------------------------------------------------
 -- Use the *propT* table to colorize the module name when requested by
 -- *propT*.
 -- @param style How to colorize
--- @param moduleName The module name
+-- @param modT The module table contain fullName, sn and fn
 -- @param propT The property table
 -- @param legendT The legend table.  A key-value pairing of keys to descriptions.
 -- @return An array of colorized strings
-function colorizePropA(style, moduleName, propT, legendT)
-   local resultA      = { moduleName }
+function colorizePropA(style, modT, mrc, propT, legendT)
    local readLmodRC   = require("ReadLmodRC"):singleton()
    local propDisplayT = readLmodRC:propT()
    local iprop        = 0
    local pA           = {}
+   local moduleName   = modT.fullName
    propT              = propT or {}
 
+   if (not mrc:isVisible(modT)) then
+      local i18n = require("i18n")
+      local H    = 'H'
+      moduleName = colorize("hidden",moduleName)
+      pA[#pA+1]  = H
+      legendT[H] = i18n("HiddenM")
+   end
+
+
+
+   local resultA      = { moduleName }
    for kk,vv in pairsByKeys(propDisplayT) do
-      iprop        = iprop + 1
-      local propA  = {}
-      local t      = propT[kk]
-      local result = ""
-      local color  = nil
+      iprop            = iprop + 1
+      local propA      = {}
+      local t          = propT[kk]
+      local result     = ""
+      local color      = nil
+      local name_color = nil
+      local full_color = false
       if (type(t) == "table") then
          for k in pairs(t) do
             propA[#propA+1] = k
          end
 
          table.sort(propA);
-         local n = concatTbl(propA,":")
+         local full_color = false
+         local n          = concatTbl(propA,":")
          if (vv.displayT[n]) then
             result     = vv.displayT[n][style]
             if (result:sub( 1, 1) == "(" and result:sub(-1,-1) == ")") then
@@ -218,6 +283,10 @@ function colorizePropA(style, moduleName, propT, legendT)
             color      = vv.displayT[n].color
             local k    = colorize(color,result)
             legendT[k] = vv.displayT[n].doc
+            full_color = vv.displayT[n].full_color
+            if (full_color) then
+               resultA[1] = colorize(color,resultA[1])
+            end
          end
       end
       local s             = colorize(color,result)
@@ -255,24 +324,15 @@ function extractVersion(fullName, sn)
    return version
 end
 
-   
+
 --------------------------------------------------------------------------
 -- Find the admin file (or nag message file).
 function findAdminFn()
    local readable    = "no"
-   local adminFn     = LMOD_ADMIN_FILE
-   local dirName, fn = splitFileName(adminFn)
-   if (isDir(dirName)) then
-      local cwd      = posix.getcwd()
-      posix.chdir(dirName)
-      dirName = posix.getcwd()
-      adminFn = pathJoin(dirName, fn)
-      posix.chdir(cwd)
-      if (posix.access(adminFn, 'r')) then
-         readable = "yes"
-      end
+   local adminFn     = cosmic:value("LMOD_ADMIN_FILE")
+   if (posix.access(adminFn, 'r')) then
+      readable = "yes"
    end
-
    return adminFn, readable
 end
 
@@ -291,14 +351,14 @@ function readAdmin()
 
    -- If there is anything in [[adminT]] then return because
    -- this routine has already read in the file.
-   if (next (adminT)) then return end
+   if (next (adminA)) then return end
 
    local adminFn = findAdminFn()
    local f       = open(adminFn,"r")
 
    -- Put something in adminT so that this routine will not be
    -- run again even if the file does not exist.
-   adminT["%%_foo_%%"] = "bar"
+   adminA[#adminA+1] = { "%%_foo_%%", "bar" }
 
    if (f) then
       local whole = f:read("*all") .. "\n"
@@ -308,13 +368,13 @@ function readAdmin()
       -- Split lines on ":" module:message
 
       local state = "init"
-      local key   = "unknown"
+      local keyA  = {}
       local value = nil
       local a     = {}
 
       for v in whole:split("\n") do
          repeat
-            v = v:trim()
+            v = v:gsub("%s+$","")
 
             if (v:sub(1,1) == "#") then
                -- ignore this comment line
@@ -322,20 +382,26 @@ function readAdmin()
 
             elseif (v:find("^%s*$")) then
                if (state == "value") then
-                  value       = concatTbl(a, " ")
-                  a           = {}
-                  adminT[key] = value
-                  state       = "init"
+                  value             = concatTbl(a, "")
+                  for i = 1, #keyA do
+                     adminA[#adminA+1] = { keyA[i], value }
+                  end
+                  a                 = {}
+                  keyA              = {}
+                  state             = "init"
                end
 
                -- Ignore blank lines
             elseif (state == "value") then
-               a[#a+1]     = v:trim()
+               a[#a+1]     = v .. "\n"
             else
                local i     = v:find(":")
                if (i) then
-                  key      = v:sub(1,i-1):trim()
-                  local  s = v:sub(i+1):trim()
+                  local k = v:sub(1,i-1):trim()
+                  for key in k:split('|') do
+                     keyA[#keyA+1] = key:trim()
+                  end
+                  local s = v:sub(i+1)
                   if (s:len() > 0) then
                      a[#a+1]  = s
                   end
@@ -377,26 +443,51 @@ end
 ------------------------------------------------------------
 -- Get the table of modulerc files with proper weights
 
-function getModuleRCT()
-   local A           = {}
-   local MRC1_system = pathJoin(cmdDir(),"../../etc/rc")
-   local MRC2_system = getenv("MODULERCFILE")
-   local MRC3_home   = pathJoin(getenv("HOME"), ".modulerc")
-   if (MRC2_system and isFile(MRC2_system)) then
-      A[#A+1] = { MRC2_system, "s"}
-   elseif (isFile(MRC1_system)) then
-      A[#A+1] = { MRC1_system, "s"}
-   end
+function getModuleRCT(remove_MRC_home)
+   --dbg.start{"getModuleRCT(remove_MRC_home)"}
+   local A            = {}
+   local MRC_system   = cosmic:value("LMOD_MODULERCFILE")
+   local MRC_home     = pathJoin(getenv("HOME"), ".modulerc")
+   local MRC_home_lua = pathJoin(getenv("HOME"), ".modulerc.lua")
 
-   if (isFile(MRC3_home)) then
-      A[#A+1] = { MRC3_home, "u"}
+   if (MRC_system) then
+      local a = {}
+      for file in MRC_system:split(":") do
+         if (isFile(file) and access(file,"r")) then
+            a[#a+1] = file
+         end
+      end
+      for i = #a, 1, -1 do
+         A[#A+1] = { a[i], "s"}
+      end
    end
+   if (not remove_MRC_home) then
+      if (isFile(MRC_home_lua) and access(MRC_home_lua,"r")) then
+         A[#A+1] = { MRC_home_lua, "u"}
+      elseif (isFile(MRC_home) and access(MRC_home,"r")) then
+         A[#A+1] = { MRC_home, "u"}
+      end
+   end
+   --dbg.printT("fnA",A)
+   --dbg.fini("getModuleRCT")
    return A
 end
 
-function isActiveMFile(mrc, full, sn)
+function isActiveMFile(mrc, full, sn, fn)
    local version = extractVersion(full, sn) or ""
-   return isVisible(mrc, full), version
+   return mrc:isVisible({fullName=full, sn=sn, fn=fn}), version
+end
+
+-----------------------------------------------------------------------
+-- This function decides if the modulefile is a marked default
+-- The rule is that a marked default is given in the first character
+-- after the '/' if there is one.  A marked default will either be
+-- '^','s' or 'u'.  All of these characters are >= '^'
+function isMarked(wV)
+   local i,j = wV:find(".*/")
+   j = j and j+1 or 1
+   local c = wV:sub(j,j)
+   return (c >= '^')
 end
 
 --------------------------------------------------------------------------
@@ -406,17 +497,6 @@ end
 function length(s)
    s = s:gsub("\027[^m]+m","")
    return s:len()
-end
-
-function isVisible(mrc, name)
-   if (mrc:getHiddenT(name)) then
-      return false
-   end
-   if (name:sub(1,1) == ".") then
-      return false
-   end
-   local idx = name:find("/%.")
-   return idx == nil
 end
 
 
@@ -443,7 +523,7 @@ function paired2pathT(path)
       if (state == 0) then
          left = v
          state = 1
-      else 
+      else
          right = v
          state = 0
          ppathT[left] =  tonumber(right)
@@ -469,7 +549,7 @@ end
 -- @param path A string of *sep* separated paths.
 -- @param sep  The separator character.  It is usually
 --             a colon.
-function path2pathA(path, sep)
+function path2pathA(path, sep, clearDoubleSlash)
    sep = sep or ":"
    if (not path) then
       return {}
@@ -482,12 +562,17 @@ function path2pathA(path, sep)
 
    local pathA = {}
    for v  in path:split(sep) do
-      pathA[#pathA + 1] = path_regularize(v)
+      local path = path_regularize(v)
+      if (clearDoubleSlash) then
+         path = path:gsub("//+" , "/")
+         path = path:gsub("/$"  , "")
+      end
+      pathA[#pathA + 1] = path
    end
 
    local n = #pathA
    local i = n
-   while (pathA[i] == "") do
+   while (pathA[i] == "" or pathA[i] == " ") do
       i = i - 1
    end
    i = i + 2
@@ -500,7 +585,7 @@ end
 
 local __quiet = false
 --------------------------------------------------------------------------
--- Return ture if in quiet mode.
+-- Return true if in quiet mode.
 function quiet()
    if (__quiet == false) then
       __quiet = getenv("LMOD_QUIET") or getenv("LMOD_EXPERT")
@@ -508,17 +593,10 @@ function quiet()
    return __quiet
 end
 
-
-function runTCLprog(TCLprog, optStr, fn)
-   local a   = {}
-   a[#a + 1] = LMOD_TCLSH
-   a[#a + 1] = pathJoin(cmdDir(),TCLprog)
-   a[#a + 1] = optStr or ""
-   a[#a + 1] = fn
-   local cmd = concatTbl(a," ")
-   local whole, status = capture(cmd)
-   return whole, status
+function regular_cmp(x,y)
+   return x.pV < y.pV
 end
+
 
 function sanizatizeTbl(rplmntA, inT, outT)
    for k, v in pairs(inT) do
@@ -532,7 +610,7 @@ function sanizatizeTbl(rplmntA, inT, outT)
          end
       end
 
-      if (type(key) == "string" and key:sub(1,1) == '_') then
+      if (type(key) == "string" and key:sub(1,2) == '__') then
          outT[key] = nil
       elseif (type(v) == "table") then
          outT[key] = {}
@@ -547,9 +625,9 @@ function sanizatizeTbl(rplmntA, inT, outT)
          end
          outT[key] = v
       else
-         outT[key] = v 
+         outT[key] = v
       end
-      
+
    end
 end
 
@@ -573,6 +651,9 @@ function setenv_lmod_version()
    for i = 1, #nameA do
       setenv_posix(nameA[i],numA[i] or "0", true)
    end
+
+   setenv_posix("ModuleTool",        "Lmod",     true)
+   setenv_posix("ModuleToolVersion", versionStr, true)
 end
 
 --------------------------------------------------------------------------
@@ -619,14 +700,14 @@ local s_defaultsT = {
 function ShowCmdStr(name, ...)
    dbg.start{"ShowCmdStr(",name,", ...)"}
    local a       = {}
-   local arg     = pack(...)
-   local n       = arg.n
-   local t       = arg
+   local argA    = pack(...)
+   local n       = argA.n
+   local t       = argA
    local hasKeys = false
    local left    = "("
    local right   = ")\n"
-   if (arg.n == 1 and type(arg[1]) == "table") then
-      t       = arg[1]
+   if (argA.n == 1 and type(argA[1]) == "table") then
+      t       = argA[1]
       n       = #t
       hasKeys = true
    end
@@ -639,7 +720,7 @@ function ShowCmdStr(name, ...)
 
    if (hasKeys) then
       hasKeys = false
-      
+
       for k,v in pairs(t) do
          if (type(k) ~= "number") then
             local strV = tostring(v)
@@ -665,7 +746,6 @@ function ShowCmdStr(name, ...)
    return concatTbl(b,"")
 end
 
-
 --------------------------------------------------------------------------
 -- Unique string that combines the current time/date
 -- with a uuid id string.
@@ -677,9 +757,9 @@ function UUIDString(epoch)
                                    ymd.year, ymd.month, ymd.day,
                                    ymd.hour, ymd.min,   ymd.sec)
 
-   local uuidgen = find_exec_path('uuidgen')
+   local uuidgen, found = findInPath('uuidgen')
    local uuid_str
-   if uuidgen then
+   if (found) then
        uuid_str = capture('uuidgen'):sub(1,-2)
    else
       -- if uuidgen is not available, fall back to reading /proc/sys/kernel/random/uuid
@@ -688,7 +768,7 @@ function UUIDString(epoch)
       if f then
          uuid_str = f:read('*all'):sub(1,-2)
       else
-         LmodError("uuidgen is not available, fallback failed too")
+         LmodError{msg="e_No_UUID"}
       end
    end
 
@@ -748,14 +828,40 @@ function getWarningFlag()
    return s_warning
 end
 
+local function l_runTCLprog(TCLprog, tcl_args)
+   local a   = {}
+   a[#a + 1] = cosmic:value("LMOD_TCLSH")
+   a[#a + 1] = TCLprog
+   a[#a + 1] = tcl_args or ""
+   local cmd = concatTbl(a," ")
+   local whole, status = capture(cmd)
+   return whole, status
+end
+
 --------------------------------------------------------------------------
--- Build function -> accept, epoch, prepend_order_function()
+-- Build function -> accept, epoch, prepend_order_function(), runTCLprog
 --------------------------------------------------------------------------
+
+--------------------------------------------------------------------------
+-- determine which version of runTCLprog to use
+
+local function build_runTCLprog()
+   local fast_tcl_interp = cosmic:value("LMOD_FAST_TCL_INTERP")
+   if (fast_tcl_interp == "no") then
+      _G.runTCLprog = l_runTCLprog
+   else
+      _G.runTCLprog = require("tcl2lua").runTCLprog
+   end
+end
+
+if (not runTCLprog) then
+   build_runTCLprog()
+end
 
 --------------------------------------------------------------------------
 -- Create the accept functions to allow or ignore TCL modulefiles.
 local function build_accept_function()
-   local allow_tcl = LMOD_ALLOW_TCL_MFILES
+   local allow_tcl = cosmic:value("LMOD_ALLOW_TCL_MFILES")
 
    if (allow_tcl == "no") then
       _G.accept_fn = function (fn)
@@ -773,7 +879,7 @@ if (not accept_fn) then
 end
 
 local function build_allow_dups_function()
-   local dups = LMOD_DUPLICATE_PATHS
+   local dups = cosmic:value("LMOD_DUPLICATE_PATHS")
    if (dups == "yes") then
       _G.allow_dups = function (dupsIn)
          return dupsIn
@@ -832,7 +938,8 @@ local function build_prepend_order_function()
       yes     = "normal",
    }
 
-   local order = ansT[LMOD_PREPEND_BLOCK] or "normal"
+   local prepend_block = cosmic:value("LMOD_PREPEND_BLOCK")
+   local order         = ansT[prepend_block] or "normal"
    if (order == "normal") then
       _G.prepend_order = function (n)
          return n, 1, -1
@@ -848,3 +955,12 @@ if (not prepend_order) then
    build_prepend_order_function()
 end
 
+local s_checkSyntaxMode = false
+function setSyntaxMode(state)
+   s_checkSyntaxMode = state
+end
+function checkSyntaxMode()
+   return s_checkSyntaxMode
+end
+
+   

@@ -18,7 +18,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -52,20 +52,24 @@ local MasterControl    = require("MasterControl")
 MC_Spider              = inheritsFrom(MasterControl)
 MC_Spider.my_name      = "MC_Spider"
 MC_Spider.my_sType     = "load"
-MC_Spider.my_tcl_mode  = "load"
+MC_Spider.my_tcl_mode  = "display"
 
 local M                = MC_Spider
 
 M.always_load          = MasterControl.quiet
 M.always_unload        = MasterControl.quiet
 M.conflict             = MasterControl.quiet
+M.color_banner         = MasterControl.quiet
+M.depends_on           = MasterControl.quiet
 M.error                = MasterControl.quiet
 M.execute              = MasterControl.execute
-M.family               = MasterControl.quiet
 M.inherit              = MasterControl.quiet
 M.load                 = MasterControl.quiet
+M.load_any             = MasterControl.quiet
 M.load_usr             = MasterControl.quiet
 M.message              = MasterControl.quiet
+M.msg_raw              = MasterControl.quiet
+M.mgrload              = MasterControl.quiet
 M.prereq               = MasterControl.quiet
 M.prereq_any           = MasterControl.quiet
 M.pushenv              = MasterControl.quiet
@@ -81,6 +85,12 @@ M.unset_alias          = MasterControl.quiet
 M.unset_shell_function = MasterControl.quiet
 M.usrload              = MasterControl.quiet
 M.warning              = MasterControl.warning
+
+function argsPack(...)
+   local arg = { n = select("#", ...), ...}
+   return arg
+end
+pack     = (_VERSION == "Lua 5.1") and argsPack or table.pack
 
 --------------------------------------------------------------------------
 -- use the moduleStack to return the filename of the modulefile.
@@ -126,7 +136,7 @@ function M.myModuleVersion(self)
 end
 
 --------------------------------------------------------------------------
--- MC_Spider:help(): Collect the help message into moduleT
+-- MC_Spider:help(...): Collect the help message into moduleT
 -- @param self A MasterControl object.
 function M.help(self,...)
    dbg.start{"MC_Spider:help(...)"}
@@ -135,6 +145,29 @@ function M.help(self,...)
    local path         = moduleStack[iStack].path
    local moduleT      = moduleStack[iStack].moduleT
    moduleT.help       = concatTbl({...},"")
+   dbg.fini()
+   return true
+end
+
+--------------------------------------------------------------------------
+-- MC_Spider:extensions(...): Copy the list of provides to moduleT
+-- @param self A MasterControl object.
+function M.extensions(self,...)
+   dbg.start{"MC_Spider:extensions(...)"}
+   local moduleStack  = masterTbl().moduleStack
+   local iStack       = #moduleStack
+   local path         = moduleStack[iStack].path
+   local moduleT      = moduleStack[iStack].moduleT
+
+   local argA = pack(...)
+   local a = {}
+   for i = 1, argA.n do
+      local b = argA[i]
+      for name in b:split(" *, *") do
+         a[#a+1] = name
+      end
+   end
+   moduleT.provides   = a
    dbg.fini()
    return true
 end
@@ -232,6 +265,22 @@ end
 -- @param self A MasterControl object.
 function M.is_spider(self)
    dbg.start{"MC_Spider:is_spider()"}
+   dbg.fini()
+   return true
+end
+
+--------------------------------------------------------------------------
+-- Copy the family to moduleT
+-- @param self A MasterControl object.
+-- @param value the family value
+
+function M.family(self, value)
+   dbg.start{"MC_Spider:family(\"value=\"",value,"\")"}
+   local moduleStack   = masterTbl().moduleStack
+   local iStack        = #moduleStack
+   local path          = moduleStack[iStack].path
+   local moduleT       = moduleStack[iStack].moduleT
+   moduleT.family      = value
    dbg.fini()
    return true
 end

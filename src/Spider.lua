@@ -1,3 +1,6 @@
+_G._DEBUG          = false               -- Required by the new lua posix
+local posix        = require("posix")
+
 require("strict")
 
 --------------------------------------------------------------------------
@@ -10,7 +13,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -34,6 +37,7 @@ require("strict")
 --
 --------------------------------------------------------------------------
 
+require("myGlobals")
 require("string_utils")
 require("fileOps")
 require("pairsByKeys")
@@ -41,8 +45,8 @@ require("utils")
 require("serializeTbl")
 require("deepcopy")
 require("loadModuleFile")
+require("sandbox")
 
-_G._DEBUG          = false               -- Required by the new lua posix
 local Banner       = require("Banner")
 local M            = {}
 local MRC          = require("MRC")
@@ -51,11 +55,14 @@ local MT           = require("MT")
 local MName        = require("MName")
 local ReadLmodRC   = require("ReadLmodRC")
 local concatTbl    = table.concat
+local cosmic       = require("Cosmic"):singleton()
 local dbg          = require("Dbg"):dbg()
 local getenv       = os.getenv
+local hook         = require("Hook")
+local i18n         = require("i18n")
 local lfs          = require("lfs")
-local posix        = require("posix")
 local access       = posix.access
+local sort         = table.sort
 
 KeyT = {Description=true, Name=true, URL=true, Version=true, Category=true, Keyword=true}
 
@@ -98,7 +105,7 @@ end
 
 local function processNewModulePATH(path)
    local masterTbl   = masterTbl()
-   local dirStk      = masterTbl.dirStk 
+   local dirStk      = masterTbl.dirStk
    local mpath_new   = path_regularize(path)
    dirStk[#dirStk+1] = mpath_new
 
@@ -111,7 +118,7 @@ local function processNewModulePATH(path)
    t[fullName]       = mpath_old
 
    mpathMapT[mpath_new] = t
-   
+
 end
 
 function Spider_append_path(kind, t)
@@ -123,7 +130,9 @@ function Spider_append_path(kind, t)
       dbg.fini(kind)
    elseif (name == "PATH") then
       dbg.start{kind, "(\"",name, "\" = \"", value, "\")"}
-      processPATH(value)
+      if (value ~= ".") then
+         processPATH(value)
+      end
       dbg.fini(kind)
    elseif (name == "LD_LIBRARY_PATH" or name == "CRAY_LD_LIBRARY_PATH" ) then
       dbg.start{kind, "(\"",name, "\" = \"", value, "\")"}
@@ -142,18 +151,30 @@ end
 
 local function findModules(mpath, mt, mList, sn, v, moduleT)
 
+   local shell    = _G.Shell
+   local tracing  = cosmic:value("LMOD_TRACING")
    local function loadMe(entryT, moduleStack, iStack, myModuleT)
       local shellNm       = "bash"
       local fn            = entryT.fn
       local sn            = entryT.sn
-      local pV            = entryT.pV
-      local wV            = entryT.wV
       local fullName      = entryT.fullName
       local version       = entryT.version
       moduleStack[iStack] = { mpath = mpath, sn = sn, fullName = fullName, moduleT = myModuleT, fn = fn}
       local mname         = MName:new("entryT", entryT)
       mt:add(mname, "pending")
-      loadModuleFile{file=fn, shell=shellNm, reportErr=true, mList = mList}
+
+      if (tracing == "yes") then
+         local b          = {}
+         b[#b + 1]        = "Spider Loading: "
+         b[#b + 1]        = fullName
+         b[#b + 1]        = " (fn: "
+         b[#b + 1]        = fn or "nil"
+         b[#b + 1]        = ")\n"
+         shell:echo(concatTbl(b,""))
+      end
+
+      loadModuleFile{file=fn, help=true, shell=shellNm, reportErr=false, mList = mList}
+      hook.apply("load_spider",{fn = fn, modFullName = fullName, sn = sn})
       mt:setStatus(sn, "active")
    end
 
@@ -161,15 +182,14 @@ local function findModules(mpath, mt, mList, sn, v, moduleT)
    local moduleStack = masterTbl().moduleStack
    local iStack      = #moduleStack
    if (v.file) then
-      entryT   = { fn = v.file, sn = sn, userName = sn, fullName = sn, version = false,
-                   pV = v.pV, wV = v.wV }
+      entryT   = { fn = v.file, sn = sn, userName = sn, fullName = sn, version = false}
       loadMe(entryT, moduleStack, iStack, v.metaModuleT)
    end
    if (next(v.fileT) ~= nil) then
       for fullName, vv in pairs(v.fileT) do
+         vv.Version = extractVersion(fullName, sn)
          entryT   = { fn = vv.fn, sn = sn, userName = fullName, fullName = fullName,
-                      version = extractVersion(fullName, sn),
-                      pV = v.pV, wV = v.wV }
+                      version = vv.Version }
          loadMe(entryT, moduleStack, iStack, vv)
       end
    end
@@ -180,23 +200,23 @@ local function findModules(mpath, mt, mList, sn, v, moduleT)
    end
 end
 
-function M.searchSpiderDB(self, strA, dbT)
+function M.searchSpiderDB(self, strA, dbT, providedByT)
    dbg.start{"Spider:searchSpiderDB({",concatTbl(strA,","),"},spider, dbT)"}
    local masterTbl = masterTbl()
-   
+
    if (not masterTbl.regexp) then
       for i = 1, strA.n do
          strA[i] = strA[i]:caseIndependent()
       end
    end
 
-   local kywdT = {}
-   
-   for sn, vv in pairs(dbT) do
+   local kywdT     = {}
+
+   for sn, vvv in pairs(dbT) do
       kywdT[sn] = {}
       local t   = kywdT[sn]
-      for fn, v in pairs(vv) do
-         local whatisS  = concatTbl(v.whatis or {},"\n"):lower()
+      for fn, vv in pairs(vvv) do
+         local whatisS  = concatTbl(vv.whatis or {},"\n"):lower()
          local found    = false
          for i = 1,strA.n do
             local str = strA[i]
@@ -204,19 +224,40 @@ function M.searchSpiderDB(self, strA, dbT)
                found = true
                break
             end
+            if (vv.propT and next(vv.propT) ~= nil) then
+               for propN,v in pairs(vv.propT) do
+                  for k in pairs(v) do
+                     if (k:find(str)) then
+                        dbg.print{"k: ",k,"\n"}
+                        found = true
+                        break
+                     end
+                  end
+               end
+            end
          end
          if (found) then
-            t[fn] = v
+            t[fn] = vv
          end
       end
       if (next(kywdT[sn]) == nil) then
          kywdT[sn] = nil
       end
    end
-         
+
+   local kywdExtsT = {}
+   for sn, vv in pairs(providedByT) do
+      for i = 1, strA.n do
+         local str = strA[i]
+         if (sn:find(str)) then
+            kywdExtsT[sn] = vv
+         end
+      end
+   end
+
    dbg.fini("Spider:searchSpiderDB")
-   return kywdT
-end   
+   return kywdT, kywdExtsT
+end
 
 
 
@@ -225,6 +266,7 @@ function M.findAllModules(self, mpathA, spiderT)
    dbg.start{"Spider:findAllModules(",concatTbl(mpathA,", "),")"}
    spiderT.version = LMOD_CACHE_VERSION
 
+   local tracing         = cosmic:value("LMOD_TRACING")
    local mt              = deepcopy(MT:singleton())
    local maxdepthT       = mt:maxDepthT()
    local masterTbl       = masterTbl()
@@ -236,6 +278,12 @@ function M.findAllModules(self, mpathA, spiderT)
    local mList           = ""
    local exit            = os.exit
    os.exit               = nothing
+   
+   sandbox_set_os_exit(nothing)
+   if (tracing == "no" and not dbg.active()) then
+      turn_off_stderr()
+   end
+   dbg.print{"setting os.exit to nothing; turn off output to stderr\n"}
    if (Use_Preload) then
       local a = {}
       mList   = getenv("LOADEDMODULES") or ""
@@ -250,7 +298,8 @@ function M.findAllModules(self, mpathA, spiderT)
    end
 
    local dirStk = masterTbl.dirStk
-   for _, mpath in ipairs(mpathA) do
+   for i = 1,#mpathA do
+      local mpath = mpathA[i]
       if (isDir(mpath)) then
          dirStk[#dirStk+1] = path_regularize(mpath)
       end
@@ -258,13 +307,13 @@ function M.findAllModules(self, mpathA, spiderT)
 
    while(#dirStk > 0) do
       repeat
-         
+
          -- Pop top of dirStk
          local mpath     = dirStk[#dirStk]
          dirStk[#dirStk] = nil
 
          -- skip mpath directory if already walked.
-         if (spiderT[mpath]) then break end  
+         if (spiderT[mpath]) then break end
 
          -- skip mpath if directory does not exist
          -- or can not be read
@@ -272,6 +321,7 @@ function M.findAllModules(self, mpathA, spiderT)
          if (not attr or attr.mode ~= "directory" or
              (not access(mpath,"rx")))               then break end
 
+         dbg.print{"RTM mpath: ", mpath,"\n"}
          local moduleA     = ModuleA:__new({mpath}, maxdepthT):moduleA()
          local T           = moduleA[1].T
          for sn, v in pairs(T) do
@@ -281,7 +331,12 @@ function M.findAllModules(self, mpathA, spiderT)
       until true
    end
 
+   dbg.print{"Resetting os.exit back; stderr back on\n"}
    os.exit               = exit
+   sandbox_set_os_exit(exit)
+   if (tracing == "no" and not dbg.active()) then
+      turn_on_stderr()
+   end
    dbg.fini("Spider:findAllModules")
 end
 
@@ -304,15 +359,15 @@ end
 
 function copy(a)
    local b = {}
-   for i = 1, #a do
-      b[i] = a[i]
+   for k,v in pairs(a) do
+      b[k] = v
    end
    return b
 end
 
 ------------------------------------------------------------
 -- Convert the mpathMapT to parentT.
--- So if the mpathMapT looks like 
+-- So if the mpathMapT looks like
 --     mpathMapT = {
 --        ["%ProjDir%/Compiler/gcc/5.9"]  = {
 --           ["gcc/5.9.3"] = "%ProjDir%/Core",
@@ -329,20 +384,20 @@ end
 --     }
 -- Then parentT looks like:
 --     parentT = {
---        ['%ProjDir%/spec/Spider/h/mf1/Compiler/gcc/5.9'] =
+--        ['%ProjDir%/Compiler/gcc/5.9'] =
 --           {
 --              {"gcc/5.9.3"},
 --              {"gcc/5.9.2"},
 --           },
---     
---        ['%ProjDir%/spec/Spider/h/mf1/Compiler/gcc/5.9/mpich/17.200'] =
+--
+--        ['%ProjDir%/Compiler/gcc/5.9/mpich/17.200'] =
 --           {
 --              {"gcc/5.9.3", "mpich/17.200.1"},
 --              {"gcc/5.9.3", "mpich/17.200.2"},
 --              {"gcc/5.9.2", "mpich/17.200.1"},
 --              {"gcc/5.9.2", "mpich/17.200.2"},
---           },     
---        ["%ProjDir%/spec/Spider/h/mf1/MPI/gcc/5.9/mpich/17.200/petsc/3.4"]  =
+--           },
+--        ["%ProjDir%/MPI/gcc/5.9/mpich/17.200/petsc/3.4"]  =
 --           {
 --              {"gcc/5.9.3", "mpich/17.200.1", "petsc/3.4-cxx"  },
 --              {"gcc/5.9.3", "mpich/17.200.2", "petsc/3.4-cxx"  },
@@ -359,20 +414,36 @@ end
 -- The logic for this routine was originally written by Kenneth Hoste in
 -- python after yours truly couldn't work it out.
 
-local function build_parentT(mpathMapT)
+local function l_build_parentT(keepT, mpathMapT)
+   --dbg.start{"l_build_parentT(keepT, mpathMapT)"}
+   --dbg.printT("keepT",keepT)
+   --dbg.printT("mpathMapT",mpathMapT)
 
-   local function build_parentT_helper( mpath, fullNameA)
+   local function l_build_parentT_helper( mpath, fullNameA, fullNameT)
+      --dbg.start{"l_build_parentT_helper(mpath, fullNameA, fullNameT)"}
+      --dbg.print{"mpath: ",mpath,"\n"}
+      --dbg.printT("fullNameA: ",fullNameA)
+      --dbg.printT("fullNameT: ",fullNameT)
+
       local resultA
       if (not mpathMapT[mpath]) then
          resultA = { fullNameA }
       else
          resultA = {}
          for fullName, mpath2 in pairs(mpathMapT[mpath]) do
-            local tmpA    = copy(fullNameA)
-            tmpA[#tmpA+1] = fullName
-            resultA = extend(resultA, build_parentT_helper(mpath2, tmpA))
+            if (not fullNameT[fullName]) then
+               local tmpA    = copy(fullNameA)
+               local tmpT    = copy(fullNameT)
+               if (keepT[mpath2]) then
+                  tmpA[#tmpA+1]  = fullName
+                  tmpT[fullName] = true
+               end
+               resultA = extend(resultA, l_build_parentT_helper(mpath2, tmpA, tmpT))
+            end
          end
       end
+      --dbg.printT("resultA",resultA)
+      --dbg.fini("l_build_parentT_helper")
       return resultA
    end
 
@@ -382,7 +453,7 @@ local function build_parentT(mpathMapT)
       local A        = parentT[mpath]
 
       for fullName, mpath2 in pairs(v) do
-         A = extend(A, build_parentT_helper(mpath2, {fullName}))
+         A = extend(A, l_build_parentT_helper(mpath2, {fullName}, {[fullName] = true}))
       end
    end
 
@@ -392,18 +463,85 @@ local function build_parentT(mpathMapT)
       end
    end
 
+   --dbg.printT("parentT",parentT)
+   --dbg.fini("l_build_parentT")
    return parentT
 end
 
+local function l_build_mpathParentT(mpathMapT)
+   local mpathParentT = {}
+   for mpath, vv in pairs(mpathMapT) do
+      local a = mpathParentT[mpath] or {}
+      for k, v in pairs(vv) do
+         local found = false
+         for i = 1,#a do
+            if (a[i] == v) then
+               found = true
+               break
+            end
+         end
+         if (not found) then
+            a[#a+1] = v
+         end
+      end
+      mpathParentT[mpath]  = a
+   end
+   return mpathParentT
+end
+
+-- mpathParentT = {
+--    ["%ProjDir%/Compiler/gcc/5.9"]         = { "%ProjDir%/Core", "%ProjDir%/Core2"},
+--    ["%ProjDir%/MPI/gcc/5.9/mpich/17.200"] = { "%ProjDir%/Compiler/gcc/5.9"},
+-- }
+
+
+local function l_search_mpathParentT(mpath, keepT, mpathParentT)
+   local a = mpathParentT[mpath]
+   if (not a) then
+      return false
+   end
+
+   local found = false
+   for i = 1,#a do
+      mpath = a[i]
+      if (keepT[mpath] or l_search_mpathParentT(mpath, keepT, mpathParentT)) then
+         return true
+      end
+   end
+   return false
+end
+
+local function l_build_keepT(mpathA, mpathParentT, spiderT)
+   local keepT = {}
+   for i = 1,#mpathA do
+      keepT[mpathA[i]] = true
+   end
+
+   for mpath, vv in pairs(spiderT) do
+      if (mpath ~= 'version') then
+         if (not keepT[mpath] and l_search_mpathParentT(mpath, keepT, mpathParentT)) then
+            keepT[mpath] = true
+         end
+      end
+   end
+
+   return keepT
+end
+
 local dbT_keyA = { 'Description', 'Category', 'URL', 'Version', 'whatis', 'dirA',
-                   'pathA', 'lpathA', 'propT','help','pV'}
+                   'family','pathA', 'lpathA', 'propT','help','pV','wV','provides'}
 
 
-function M.buildDbT(self, mpathMapT, spiderT, dbT)
+function M.buildDbT(self, mpathA, mpathMapT, spiderT, dbT)
+   dbg.start{"Spider:buildDbT(mpathMapT,spiderT, dbT)"}
+   local mpathParentT = l_build_mpathParentT(mpathMapT)
+   local keepT        = l_build_keepT(mpathA, mpathParentT, spiderT)
+   local parentT      = l_build_parentT(keepT, mpathMapT)
+   local mrc          = MRC:singleton()
 
-   local parentT   = build_parentT(mpathMapT)
-
-
+   local function cmp(a,b)
+      return a[1] > b[1]
+   end
    local function buildDbT_helper(mpath, sn, v, T)
       if (v.file) then
          local t = {}
@@ -411,28 +549,48 @@ function M.buildDbT(self, mpathMapT, spiderT, dbT)
             local key = dbT_keyA[i]
             t[key]    = v.metaModuleT[key]
          end
+         if (parentT[mpath] and next(parentT[mpath]) ~= nil) then
+            dbg.printT("parentAA",parentT[mpath])
+            sort(parentT[mpath], cmp)
+         end
          t.parentAA     = parentT[mpath]
          t.fullName     = sn
+         t.hidden       = not mrc:isVisible({fullName=sn, sn=sn, fn=v.file})
          T[v.file]      = t
-      elseif (next(v.fileT) ~= nil) then
+      end
+      if (next(v.fileT) ~= nil) then
          for fullName, vv in pairs(v.fileT) do
             local t = {}
             for i = 1,#dbT_keyA do
                local key = dbT_keyA[i]
                t[key]    = vv[key]
             end
+            if (parentT[mpath] and next(parentT[mpath]) ~= nil) then
+               dbg.printT("parentAA",parentT[mpath])
+               sort(parentT[mpath], cmp)
+            end
             t.parentAA   = parentT[mpath]
             t.fullName   = fullName
-            T[vv.fn]     = t
+            t.hidden     = not mrc:isVisible({fullName=fullName, sn=sn, fn=vv.fn})
+            if (not vv.dot_version) then
+               T[vv.fn]  = t
+            end
          end
-      elseif (next(v.dirT) ~= nil) then
+      end
+      if (next(v.dirT) ~= nil) then
          for name, vv in pairs(v.dirT) do
             buildDbT_helper(mpath, sn, vv, T)
          end
       end
    end
 
-   dbg.start{"Spider:buildDbT(mpathMapT,spiderT, dbT)"}
+
+   dbg.printT("mpathA",      mpathA)
+   dbg.printT("mpathMapT",   mpathMapT)
+   dbg.printT("mpathParentT",mpathParentT)
+   dbg.printT("keepT",       keepT)
+   dbg.printT("parentT",     parentT)
+
 
    if (next(spiderT) == nil) then
       dbg.print{"empty spiderT\n"}
@@ -441,7 +599,8 @@ function M.buildDbT(self, mpathMapT, spiderT, dbT)
    end
 
    for mpath, vv in pairs(spiderT) do
-      if (mpath ~= 'version') then
+      dbg.print{"mpath: ",mpath, ", keepT[mpathT]: ",tostring(keepT[mpath]),"\n"}
+      if (mpath ~= 'version' and keepT[mpath]) then
          for sn, v in pairs(vv) do
             local T = dbT[sn] or {}
             buildDbT_helper(mpath, sn, v, T)
@@ -449,40 +608,106 @@ function M.buildDbT(self, mpathMapT, spiderT, dbT)
          end
       end
    end
+   dbg.printT("dbT",       dbT)
    dbg.fini("Spider:buildDbT")
-end         
+end
 
-function M.Level0(self, dbT)
-   local a           = {}
-   local masterTbl   = masterTbl()
-   local show_hidden = masterTbl.show_hidden
-   local terse       = masterTbl.terse
-   local mrc         = MRC:singleton()
+function M.buildProvideByT(self, dbT, providedByT)
+   dbg.start{"Spider:buildProvideByT(dbT, providedByT)"}
 
-
-   if (terse) then
-      dbg.start{"Spider:Level0()"}
-      local t  = {}
-      for sn, vv in pairs(dbT) do
-         for fn, v in pairs(vv) do
-            local isActive, version = isActiveMFile(mrc, v.fullName, sn)
-            if (show_hidden or isActive) then
-               if (sn == v.fullName) then
-                  t[sn] = sn
+   local mrc = MRC:singleton()
+   for sn, vv in pairs(dbT) do
+      for fullPath, v in pairs(vv) do
+         local hidden = not mrc:isVisible({fullName=v.fullName, sn=sn, fn=fullPath})
+         if (v.provides ~= nil) then
+            local providesA = v.provides
+            for i = 1, #providesA do
+               local fullName = providesA[i]
+               local _,_, sn  = fullName:find("^([^/]*)")
+               local T        = providedByT[sn] or {}
+               local A        = T[fullName] or {}
+               local parentAA = v.parentAA
+               if (parentAA == nil) then
+                  A[#A+1] = {fullName = v.fullName, pV = v.pV, hidden = hidden,
+                             my_name = fullName}
                else
-                  -- print out directory name (e.g. gcc) for tab completion.
-                  t[sn]     = sn .. "/"
-                  local key = sn .. "/" .. v.pV
-                  t[key]    = v.fullName
+                  for j = 1,#parentAA do
+                     local hierStr = concatTbl(parentAA[j]," ")
+                     A[#A+1] = {fullName = v.fullName .. " (" .. hierStr .. ")", pV = v.pV,
+                                hidden = hidden, my_name = fullName}
+                  end
                end
+               T[fullName]     = A
+               providedByT[sn] = T
             end
          end
       end
-      for k,v in pairsByKeys(t) do
-         a[#a+1] = v
+   end
+
+   local function cmp(a, b)
+      if (a.pV > b.pV) then
+         return true
+      elseif (a.pV == b.pV) then
+         return a.fullName > b.fullName
+      else
+         return false
       end
-      dbg.fini("Spider:Level0")
-      return concatTbl(a,"\n")
+   end
+
+   for sn, vv in pairs(providedByT) do
+      for fullName, v in pairs(vv) do
+         sort(v, cmp)
+      end
+   end
+
+   dbg.fini("Spider:buildProvideByT")
+
+
+end
+
+
+function M.Level0_terse(self,dbT, providedByT)
+   dbg.start{"Spider:Level0_terse()"}
+   local mrc         = MRC:singleton()
+   local masterTbl   = masterTbl()
+   local show_hidden = masterTbl.show_hidden
+   local t           = {}
+   local a           = {}
+   for sn, vv in pairs(dbT) do
+      for fn, v in pairs(vv) do
+         local isActive, version = isActiveMFile(mrc, v.fullName, sn, fn)
+         if (show_hidden or isActive) then
+            if (sn == v.fullName) then
+               t[sn] = sn
+            else
+               -- print out directory name (e.g. gcc) for tab completion.
+               t[sn]     = sn .. "/"
+               local key = sn .. "/" .. v.pV
+               t[key]    = v.fullName
+            end
+         end
+      end
+   end
+
+   for sn, vv in pairs(providedByT) do
+      t[sn] = t[sn] or sn .. "/"
+      for fullName, A in pairs(vv) do
+         t[fullName] = t[fullName] or fullName
+      end
+   end
+
+   for k,v in pairsByKeys(t) do
+      a[#a+1] = v
+   end
+   dbg.fini("Spider:Level0_terse")
+   return concatTbl(a,"\n")
+end
+
+function M.Level0(self, dbT, providedByT)
+   local a = {}
+
+   if (masterTbl().terse) then
+      return self:Level0_terse(dbT, providedByT)
    end
 
    local ia     = 0
@@ -492,24 +717,40 @@ function M.Level0(self, dbT)
 
    ia = ia+1; a[ia] = "\n"
    ia = ia+1; a[ia] = border
-   ia = ia+1; a[ia] = "The following is a list of the modules currently available:\n"
+   ia = ia+1; a[ia] = i18n("m_Spider_Title", {})
    ia = ia+1; a[ia] = border
 
-   self:Level0Helper(dbT,a)
+   self:Level0Helper(dbT, providedByT, a)
 
    return concatTbl(a,"")
 end
 
-function M.Level0Helper(self, dbT, a)
+--------------------------------------------------------------------------
+-- Convert both argument to lower case and compare.
+-- @param a input string
+-- @param b input string
+local function l_case_independent_cmp_by_name(a,b)
+   local a_lower = a:lower()
+   local b_lower = b:lower()
+
+   if (a_lower  == b_lower ) then
+      return a < b
+   else
+      return a_lower < b_lower
+   end
+end
+
+function M.Level0Helper(self, dbT, providedByT, a)
    local t           = {}
-   local show_hidden = masterTbl().show_hidden
+   local masterTbl   = masterTbl()
+   local show_hidden = masterTbl.show_hidden
    local term_width  = TermWidth() - 4
    local banner      = Banner:singleton()
    local mrc         = MRC:singleton()
 
    for sn, vv in pairs(dbT) do
       for fn,v in pairsByKeys(vv) do
-         local isActive, version = isActiveMFile(mrc, v.fullName, sn)
+         local isActive, version = isActiveMFile(mrc, v.fullName, sn, fn)
          if (show_hidden or isActive) then
             if (t[sn] == nil) then
                t[sn] = { Description = v.Description, versionA = { }, name = sn}
@@ -519,9 +760,36 @@ function M.Level0Helper(self, dbT, a)
       end
    end
 
+   local have_providedBy = false
+   if (next(providedByT) ~= nil) then
+      for sn, vv in pairs(providedByT) do
+         for fullName, A in pairs(vv) do
+            local isVisible = show_hidden
+            if (not show_hidden) then
+               for i = 1, #A do
+                  if (not A[i].hidden) then
+                     isVisible = true
+                     break
+                  end
+               end
+            end
+            if (isVisible) then
+               have_providedBy = true
+               local version = extractVersion(fullName,sn)
+               local pV      = parseVersion(version)
+               if ( t[sn] == nil) then
+                  t[sn] = {versionA = { }, name = sn}
+               end
+               t[sn].versionA[pV] = colorize("blue",fullName) .. " (E)"
+            end
+         end
+      end
+   end
+
    local ia  = #a
-   local cmp = (LMOD_CASE_INDEPENDENT_SORTING:lower():sub(1,1) == "y") and
-               case_independent_cmp or nil
+   local cmp = (cosmic:value("LMOD_CASE_INDEPENDENT_SORTING") == "yes") and
+                l_case_independent_cmp_by_name or nil
+
    for k,v in pairsByKeys(t,cmp) do
       local len = 0
       ia = ia + 1; a[ia] = "  " .. v.name .. ":"
@@ -542,15 +810,13 @@ function M.Level0Helper(self, dbT, a)
       end
       ia = ia + 1; a[ia] = "\n"
    end
+   if (have_providedBy) then
+      ia = ia + 1
+      a[ia] = i18n("m_ProvidedBy")
+   end
+
    local border = banner:border(0)
-   ia = ia+1; a[ia] = border
-   ia = ia+1; a[ia] = "To learn more about a package enter:\n\n"
-   ia = ia+1; a[ia] = "   $ module spider Foo\n\n"
-   ia = ia+1; a[ia] = "where \"Foo\" is the name of a module\n\n"
-   ia = ia+1; a[ia] = "To find detailed information about a particular package you\n"
-   ia = ia+1; a[ia] = "must enter the version if there is more than one version:\n\n"
-   ia = ia+1; a[ia] = "   $ module spider Foo/11.1\n"
-   ia = ia+1; a[ia] = border
+   ia = ia+1; a[ia] = i18n("m_Spider_Tail", {border=border})
 end
 
 function M.setExactMatch(self, name)
@@ -561,23 +827,15 @@ function M.getExactMatch(self)
    return self.__name
 end
 
-function M.spiderSearch(self, dbT, userSearchPat, helpFlg)
-   dbg.start{"Spider:spiderSearch(dbT,\"",userSearchPat,"\",",helpFlg,")"}
+function M.spiderSearch(self, dbT, providedByT, userSearchPat, helpFlg)
+   dbg.start{"Spider:spiderSearch(dbT,providedByT,\"",userSearchPat,"\",",helpFlg,")"}
    local masterTbl   = masterTbl()
    local show_hidden = masterTbl.show_hidden
    local mrc         = MRC:singleton()
 
+   dbg.print{"show_hidden: ",show_hidden,"\n"}
+
    --dbg.printT("dbT",dbT)
-
-
-   local fullT = {}
-   for sn, vv in pairs(dbT) do
-      fullT[sn] = sn
-      for fn, v in pairs(vv) do
-         fullT[v.fullName] = sn
-      end
-   end
-
 
    local origUserSearchPat = userSearchPat
    if (not masterTbl.regexp) then
@@ -588,58 +846,117 @@ function M.spiderSearch(self, dbT, userSearchPat, helpFlg)
    -- Match rules in dbT
    --
    -- 1) Matching original user search pattern in dbT
-   --    Check for possibles.  Count 
-   
+   --    Check for possibles.  Count
+
    -- 2) Matching one Full only -> Level 2
    --
    -- 3) Matching sn but there is only 1 fullName -> Level 2
    --
    -- 4) Matching sn or full with multiple versions -> Level1
-   
+
    local a         = {}
    local matchT    = {}
    local T         = dbT[origUserSearchPat]
-   local look4poss = false
-   if (T) then
-      --dbg.print{"found single entry in dbT with sn: ", origUserSearchPat,"\n"}
+   local TT        = providedByT[origUserSearchPat]
 
-      -- Must check for any valid modulefiles
+   if (T  and next(T)  ~= nil) then dbg.printT("dbT->T",T)          else dbg.print{"no T\n"} end
+   if (TT and next(TT) ~= nil) then dbg.printT("providedBy->TT",TT) else dbg.print{"no TT\n"} end
+
+   local look4poss = false
+   if (T or TT) then
+      -- Must check for any valid modulefiles or providesBy
+      dbg.print{"Have T or TT\n"}
+      
       local found = true
       if (not show_hidden) then
          found = false
-         for fn, v in pairs(T) do
-            if (isVisible(mrc, v.fullName)) then
-               found = true
-               break
+         if (T) then
+            dbg.print{"Have T\n"}
+            for fn, v in pairs(T) do
+               if (mrc:isVisible({fullName=v.fullName,fn=fn,sn=origUserSearchPat})) then
+                  found = true
+                  break
+               end
+            end
+         end
+         if (TT and not found) then
+            dbg.print{"Have TT\n"}
+            for fullName, A in pairs(TT) do
+               for i = 1,#A do
+                  if (not A[i].hidden) then
+                     found = true
+                     break
+                  end
+               end
             end
          end
       end
-            
+
       if (found) then
          matchT[origUserSearchPat] = origUserSearchPat
          look4poss                 = true
       end
    else
+      dbg.print{"Do not have T or TT\n"}
+      -- If here then no exact match has been found in either dbT or providedByT, so
+      -- Step 1 copy all sn and fullNames to fullA
+
       local aT = {}
       local bT = {}
       dbg.print{"userSearchPat: ",userSearchPat,"\n"}
-      for key, sn in pairs(fullT) do
-         if (key == origUserSearchPat and (show_hidden or isVisible(mrc,key))) then
-            aT[sn] = origUserSearchPat
-         end
-         if (key:find(userSearchPat) and (show_hidden or isVisible(mrc,key))) then
-            dbg.print{"  key: ",key,", sn: ",sn,"\n"}
-            bT[sn] = userSearchPat
+      local fullA = {}
+      for sn, vv in pairs(dbT) do
+         for fn, v in pairs(vv) do
+            if (show_hidden or mrc:isVisible({fullName=v.fullName,sn=sn,fn=fn})) then
+                fullA[#fullA+1] = {sn=sn, fullName=v.fullName}
+            end
          end
       end
+      for sn, vv in pairs(providedByT) do
+         for fullName, A in pairs(vv) do
+            for i = 1,#A do
+               if (show_hidden or (not A[i].hidden)) then
+                  fullA[#fullA+1] = {sn=sn, fullName=fullName}
+                  break
+               end
+            end
+         end
+      end
+
+      dbg.printT("fullA: ",fullA)
+
+      -- Step 2: find matches: if exact match then place in aT,
+      --         otherwise partial matches go in bT
+      local my_sn = nil
+      for i = 1, #fullA do
+         local mod      = fullA[i]
+         local sn       = mod.sn
+         local fullName = mod.fullName
+
+         if (sn == origUserSearchPat or fullName == origUserSearchPat) then
+            aT[sn] = origUserSearchPat
+         end
+
+         if (sn:find(userSearchPat) or fullName:find(userSearchPat)) then
+            bT[sn] = userSearchPat
+         end
+         my_sn = sn
+      end
+
+      -- Step 3: Prefer exact matches (aT) if any to partial matches (bT)
       matchT = (next(aT) ~= nil) and aT or bT
-      --dbg.printT("aT",aT)
-      --dbg.printT("bT",bT)
+      local matchMe = "bT"
+      if (next(aT) ~= nil) then
+         matchMe = "aT"
+      end
+
+      dbg.printT("aT",aT)
+      dbg.printT("bT",bT)
    end
 
    if (next(matchT) == nil) then
       setWarningFlag()
-      LmodSystemError("Unable to find: \"",origUserSearchPat,"\"\n")
+      LmodSystemError{msg="e_Failed_2_Find", name=origUserSearchPat}
    end
 
    local possibleA = {}
@@ -653,55 +970,150 @@ function M.spiderSearch(self, dbT, userSearchPat, helpFlg)
    end
 
    for sn, key in pairsByKeys(matchT) do
-      if (next(dbT[sn]) ~= nil) then
-         local s = self:_Level1(dbT, possibleA, sn, key, helpFlg)
+      if ((dbT[sn] and next(dbT[sn]) ~= nil) or (providedByT[sn] and next(providedByT[sn]) ~= nil)) then
+         local s = self:_Level1(dbT, providedByT, possibleA, sn, key, helpFlg)
          if (s) then
             a[#a+1] = s
          end
       end
    end
+   if (#a < 1) then
+      LmodError{msg="e_No_Matching_Mods"}
+      dbg.fini("Spider:spiderSearch")
+   end
+
    dbg.fini("Spider:spiderSearch")
    return concatTbl(a,"")
-end   
+end
 
-function M._Level1(self, dbT, possibleA, sn, key, helpFlg)
-   dbg.start{"Spider:_Level1(dbT, sn: \"",sn,"\", key: \"",key,"\")"}
+function M._Level1(self, dbT, providedByT, possibleA, sn, key, helpFlg)
+   dbg.start{"Spider:_Level1(dbT, providedByT, possibleA, sn: \"",sn,"\", key: \"",key,"\")"}
    local masterTbl   = masterTbl()
    local show_hidden = masterTbl.show_hidden
    local term_width  = TermWidth() - 4
    local mrc         = MRC:singleton()
    local T           = dbT[sn]
-   if (T == nil) then
-      LmodSystemError("dbT[sn] failed for sn: ", sn,"\n")
+   local TT          = providedByT[sn]
+   local tailMsg     = nil
+   if (T == nil and TT == nil) then
+      LmodSystemError{msg="e_dbT_sn_fail", sn = sn}
    end
 
+   dbg.printT("providedByT",providedByT)
+
+
    local function countEntries()
-      local count  = 0
-      local aa     = {}
-      local bb     = {}
-      local entryA = {}
-      for fn, v in pairs(T) do
-         local fullName = v.fullName
-         if (fullName == key) then
-            aa[#aa + 1] = v
-         end
-         if(fullName:find(key) and (show_hidden or isVisible(mrc,fullName))) then
-            bb[#bb + 1] = v
+      local m_count  = 0
+      local p_count  = 0
+      local aa       = {}
+      local bb       = {}
+      local cc       = {}
+      local dd       = {}
+      local entryMA  = {}
+      local entryPA  = {}
+      local fullName = nil
+      local fName2   = nil
+      if (T) then
+         dbg.print{"Have T in countEntries\n"}
+         dbg.print{"key: ",key,"\n"}
+         for fn, v in pairs(T) do
+            if (show_hidden or mrc:isVisible({fullName=v.fullName,sn=sn,fn=fn})) then
+               if (v.fullName == key) then
+                  aa[#aa + 1] = v
+               end
+               if(v.fullName:find(key) ) then
+                  bb[#bb + 1] = v
+                  fullName    = v.fullName
+               end
+            end
          end
       end
-      if (next(aa) ~= nil) then
-         count  = 1
-         entryA = aa
+      if (#aa > 0) then
+         m_count  = 1
+         entryMA  = aa
+         fullName = aa[1].fullName
       else
-         count  = #bb
-         entryA = bb
+         m_count = #bb
+         entryMA = bb
       end
-      return count, entryA
+
+      --io.stderr:write("m_count: ",m_count,"\n")
+      --for i = 1,#aa do
+      --   io.stderr:write("aa i:",i,": ",aa[i].fullName,"\n")
+      --end
+
+      if (TT) then
+         dbg.print{"Have TT in countEntries. key: ",key,"\n"}
+         for sn, vv in pairs(providedByT) do
+            for k, A in pairs(vv) do
+               for i = 1,#A do
+                  local v = A[i]
+                  dbg.print{"k: ",k,", fullName of module: ",v.fullName,"\n"}
+                  if (not v.hidden or show_hidden) then
+                     if (k == key) then
+                        dbg.print{"  key :",key," matches\n"}
+                        cc[#cc+1]        = A[i]
+                        fName2           = colorize("blue",k) .. " (E)"
+                     end
+                     if (k:find(key)) then
+                        dbg.print{"  key :",key," find match\n"}
+                        dd[#dd+1]        = A[i]
+                        fName2           = colorize("blue",k) .. " (E)"
+                     end
+                  end
+               end
+            end
+         end
+      end
+
+      if (not tailMsg and fName2) then
+         tailMsg = i18n("m_ProvidedBy",{})
+      end
+      fullName = fullName or fName2
+
+      dbg.print{"(TT) fullName: ",fullName,"\n"}
+      if (next(cc) ~= nil) then
+         p_count = 1
+         entryPA = cc
+      else
+         p_count = #dd
+         entryPA = dd
+      end
+
+      local nameT    = {}
+      local numNames = 0
+      for i = 1, #entryMA do
+         local fullName = entryMA[i].fullName
+         if (nameT[fullName] == nil ) then
+            nameT[fullName] = true
+            numNames = numNames + 1
+         end
+      end
+
+      for i = 1, #entryPA do
+         local fullName = entryPA[i].my_name
+         if (nameT[fullName] == nil ) then
+            nameT[fullName] = true
+            numNames = numNames + 1
+         end
+      end
+
+      nameT = nil
+
+      return m_count, entryMA, p_count, entryPA, numNames, fullName, tailMsg
    end
-            
-   local count, entryA = countEntries()
-   if (count == 1) then
-      local s = self:_Level2(sn, entryA, possibleA)
+
+   local m_count, entryMA, p_count, entryPA, numNames, fullName, tailMsg = countEntries()
+
+   dbg.print{"m_count: ",m_count,", p_count: ",p_count,", fullName: ",fullName,"\n"}
+
+   dbg.printT("entryMA",entryMA)
+   dbg.printT("entryPA",entryPA)
+
+   if ((m_count == 1 and p_count == 0) or (m_count == 0 and p_count == 1) or
+       (numNames == 1)) then
+      --io.stderr:write("going level 2: fullName: ",fullName,"\n")
+      local s = self:_Level2(sn, fullName, entryMA, entryPA, possibleA, tailMsg)
       dbg.fini("Spider:_Level1")
       return s
    end
@@ -712,31 +1124,65 @@ function M._Level1(self, dbT, possibleA, sn, key, helpFlg)
    local fullVT      = {}
    local exampleV    = nil
    local Description = nil
+   local kk0         = ""
 
-   for fn, v in pairsByKeys(T) do
-      local isActive, version = isActiveMFile(mrc, v.fullName, sn)
-      if (show_hidden or isActive) then
-         local kk            = sn .. "/" .. parseVersion(version)
-         if (fullVT[kk] == nil) then
-            key         = sn
-            Description = v.Description
-            fullVT[kk]  = v.fullName
-            exampleV    = v.fullName
+   if (T) then
+      dbg.print{"Have T\n"}
+      for fn, v in pairsByKeys(T) do
+         local isActive, version = isActiveMFile(mrc, v.fullName, sn, fn)
+         if (show_hidden or isActive) then
+            local kk       = sn .. "/" .. parseVersion(version)
+            if (fullVT[kk] == nil) then
+               key         = sn
+               Description = v.Description
+               fullVT[kk]  = { fullName = v.fullName, Category = v.Category, propT = v.propT }
+            end
+            if (kk > kk0) then
+               kk0      = kk
+               exampleV = v.fullName
+            end
          end
       end
    end
-      
+
+   if (TT) then
+      dbg.print{"Have TT\n"}
+      for fullName, A in pairsByKeys(TT) do
+         for i = 1,#A do
+            if (show_hidden or not A[i].hidden) then
+               local kk = sn .. "/" .. parseVersion(extractVersion(fullName, sn)) .. ' (E)'
+               if (fullVT[kk] == nil) then
+                  key         = sn
+                  Description = nil
+                  fullVT[kk]  = { fullName = colorize("blue",fullName) .. ' (E)', providedBy = true}
+               end
+               if (kk > kk0) then
+                  kk       = kk0
+                  exampleV = fullName
+               end
+            end
+         end
+      end
+   end
+
+   dbg.printT("T",T)
+   dbg.printT("entryMA",entryMA)
+   dbg.printT("fullVT", fullVT)
+
+
    if (key == nil) then
-      LmodError("No matching modules found\n")
+      dbg.print{"key is nil\n"}
       dbg.fini("Spider:_Level1")
-      return 
+      return ""
    end
 
    local a  = {}
    local ia = 0
    if (masterTbl.terse) then
       for k, v in pairsByKeys(fullVT) do
-         ia = ia + 1; a[ia] = v .. "\n"
+         if (not v.providedBy) then
+            ia = ia + 1; a[ia] = v.fullName .. "\n"
+         end
       end
       return concatTbl(a,"")
    end
@@ -746,13 +1192,14 @@ function M._Level1(self, dbT, possibleA, sn, key, helpFlg)
    ia = ia + 1; a[ia] = "  " .. key .. ":\n"
    ia = ia + 1; a[ia] = border
    if (Description) then
-      ia = ia + 1; a[ia] = "    Description:\n"
-      ia = ia + 1; a[ia] = Description:fillWords("      ",term_width)
-      ia = ia + 1; a[ia] = "\n\n"
+      ia = ia + 1; a[ia] = i18n("m_Description", {descript = Description:fillWords("      ",term_width)})
    end
-   ia = ia + 1; a[ia] = "     Versions:\n"
+   ia = ia + 1; a[ia] = i18n("m_Versions",{})
    for k, v in pairsByKeys(fullVT) do
-      ia = ia + 1; a[ia] = "        " .. v .. "\n"
+      local decoration = hook.apply("spider_decoration",v)
+      decoration = decoration and " ("..decoration..")" or ""
+      local str = v.fullName .. decoration
+      ia = ia + 1; a[ia] = "        " .. str .. "\n"
    end
 
    if (next(possibleA) ~= nil) then
@@ -767,63 +1214,54 @@ function M._Level1(self, dbT, possibleA, sn, key, helpFlg)
             break
          end
       end
-      ia = ia + 1; a[ia] = "\n     Other possible modules matches:\n        "
-      ia = ia + 1; a[ia] = concatTbl(b,"  ")
+      ia = ia + 1; a[ia] = i18n("m_Other_possible",{b=concatTbl(b,"  ")})
+   end
+
+   if (tailMsg) then
       ia = ia + 1; a[ia] = "\n"
+      ia = ia + 1; a[ia] = tailMsg
    end
 
    if (helpFlg) then
       ia = ia + 1; a[ia] = "\n"
       local name = self:getExactMatch()
       if (name) then
-         ia = ia + 1; a[ia] = border
-         ia = ia + 1; a[ia] = "  To find other possible module matches do:\n"
-         ia = ia + 1; a[ia] = "      module -r spider '.*"
-         ia = ia + 1; a[ia] = name
-         ia = ia + 1; a[ia] = ".*'\n\n"
+         ia = ia + 1; a[ia] = i18n("m_Regex_Spider",{border=border, name=name})
       end
-
-      ia = ia + 1; a[ia] = border
-      ia = ia + 1; a[ia] = "  For detailed information about a specific \""
-      ia = ia + 1; a[ia] = key
-      ia = ia + 1; a[ia] = "\" module (including how to load the modules) use the module's full name.\n"
-      ia = ia + 1; a[ia] = "  For example:\n\n"
-      ia = ia + 1; a[ia] = "     $ module spider "
-      ia = ia + 1; a[ia] = exampleV
-      ia = ia + 1; a[ia] = "\n"
-      ia = ia + 1; a[ia] = border
+      ia = ia + 1; a[ia] = i18n("m_Spdr_L1",{border=border,key=key,exampleV=exampleV})
    end
 
    dbg.fini("Spider:_Level1")
    return concatTbl(a,"")
 end
 
-function M._Level2(self, sn, entryA, possibleA)
-   dbg.start{"Spider:_Level2(",sn,", entryA, possibleA)"}
+function M._Level2(self, sn, fullName, entryA, entryPA, possibleA, tailMsg)
+   dbg.start{"Spider:_Level2(\"",sn,"\", \"",fullName,"\", entryA, entryPA, possibleA, tailMsg)"}
    --dbg.printT("entryA",entryA)
 
-   local show_hidden = masterTbl().show_hidden
-   local a           = {}
-   local ia          = 0
-   local b           = {}
-   local c           = {}
-   local titleIdx    = 0
-
-   local entryT       = entryA[1]
-   local fullName     = entryT.fullName
+   local show_hidden  = masterTbl().show_hidden
+   local a            = {}
+   local ia           = 0
+   local b            = {}
+   local c            = {}
+   local titleIdx     = 0
+   local entryT       = entryA[1] or {}
    local banner       = Banner:singleton()
    local border       = banner:border(0)
    local readLmodRC   = ReadLmodRC:singleton()
    local propDisplayT = readLmodRC:propT()
    local term_width   = TermWidth() - 4
    local availT       = {
-      "\n    This module can be loaded directly: module load " .. fullName .. "\n",
-      "\n    You will need to load all module(s) on any one of the lines below before the \"" .. fullName .. "\" module is available to load.\n",
-      "\n    This module can be loaded directly: module load " .. fullName .. "\n" ..
-      "\n    Additional variants of this module can also be loaded after loading the following modules:\n",
+      i18n("m_Direct_Load",   {fullName=fullName}),
+      i18n("m_Depend_Mods",   {fullName=fullName}),
+      i18n("m_Direct_Load",   {fullName=fullName}) .. i18n("m_Additional_Variants",{}),
+      i18n("m_ProvByModules", {fullName=fullName})
    }
    local haveCore = 0
    local haveHier = 0
+
+   dbg.printT("entryA[1]", entryT)
+   dbg.printT("entryPA", entryPA)
 
    ia = ia + 1; a[ia] = "\n"
    ia = ia + 1; a[ia] = border
@@ -832,12 +1270,11 @@ function M._Level2(self, sn, entryA, possibleA)
    ia = ia + 1; a[ia] = "\n"
    ia = ia + 1; a[ia] = border
    if (entryT.Description) then
-      ia = ia + 1; a[ia] = "    Description:\n"
-      ia = ia + 1; a[ia] = entryT.Description:fillWords("      ", term_width)
-      ia = ia + 1; a[ia] = "\n"
+      ia = ia + 1; a[ia] = i18n("m_Description", {descript = entryT.Description:fillWords("      ", term_width)})
    end
+
    if (entryT.propT ) then
-      ia = ia + 1; a[ia] = "    Properties:\n"
+      ia = ia + 1; a[ia] = i18n("m_Properties",{})
       for kk, vv in pairs(propDisplayT) do
          if (entryT.propT[kk]) then
             for kkk in pairs(entryT.propT[kk]) do
@@ -862,65 +1299,94 @@ function M._Level2(self, sn, entryA, possibleA)
             break
          end
       end
-      ia = ia + 1; a[ia] = "\n     Other possible modules matches:\n        "
-      ia = ia + 1; a[ia] = concatTbl(bb,", ")
-      ia = ia + 1; a[ia] = "\n"
+      ia = ia + 1; a[ia] = i18n("m_Other_matches",{bb=concatTbl(bb,", ")})
    end
-   
-   ia = ia + 1; a[ia] = "Avail Title goes here.  This should never be seen\n"
-   titleIdx = ia
 
-   for k = 1, #entryA do
-      entryT = entryA[k]
-      if (not entryT.parentAA) then
-         haveCore = 1
-      else
-         b[#b+1] = "      "
-         haveHier = 2
-      end
-      if (entryT.parentAA) then
-         for j = 1, #entryT.parentAA do
-            local parentA = entryT.parentAA[j]
-            for i = 1, #parentA do
-               b[#b+1] = parentA[i]
-               b[#b+1] = '  '
+   if (next(entryA) ~= nil) then
+      ia = ia + 1; a[ia] = "Avail Title goes here.  This should never be seen\n"
+      titleIdx = ia
+
+      for k = 1, #entryA do
+         entryT = entryA[k]
+         if (not entryT.parentAA) then
+            haveCore = 1
+         else
+            b[#b+1] = "      "
+            haveHier = 2
+         end
+         if (entryT.parentAA) then
+            for j = 1, #entryT.parentAA do
+               local parentA = entryT.parentAA[j]
+               for i = 1, #parentA do
+                  b[#b+1] = parentA[i]
+                  b[#b+1] = '  '
+               end
+               b[#b] = "\n      "
             end
-            b[#b] = "\n      "
-         end
-         if (#b > 0) then
-            b[#b] = "\n" -- Remove final comma add newline instead
-            c[#c+1] = concatTbl(b,"")
-            b = {}
+            if (#b > 0) then
+               b[#b] = "\n" -- Remove the final space add newline instead
+               c[#c+1] = concatTbl(b,"")
+               b = {}
+            end
          end
       end
-   end
 
-   a[titleIdx] = availT[haveCore+haveHier]
-   if (#c > 0) then
-      -- remove any duplicates
-      local s = concatTbl(c,"")
-      local d = {}
-      if (show_hidden) then
-         for k in s:split("\n") do
-            d[k] = 1
-         end
-      else
-         for k in s:split("\n") do
-            if (not (k:find("^%.") or k:find("/%."))) then
+      a[titleIdx] = availT[haveCore+haveHier]
+      if (#c > 0) then
+         -- remove any duplicates
+         local s = concatTbl(c,"")
+         local d = {}
+         if (show_hidden) then
+            for k in s:split("\n") do
+               d[k] = 1
+            end
+         else
+            for k in s:split("\n") do
                d[k] = 1
             end
          end
+         c = {}
+         for k in pairs(d) do
+            c[#c+1] = k
+         end
+         table.sort(c)
+         c[#c+1] = " "
+         ia = ia + 1; a[ia] = concatTbl(c,"\n")
       end
-      c = {}
-      for k in pairs(d) do
-         c[#c+1] = k
-      end
-      table.sort(c)
-      c[#c+1] = " "
-      ia = ia + 1; a[ia] = concatTbl(c,"\n")
    end
 
-   if (entryT and entryT.help ~= nil) then
+   if (next(entryPA) ~= nil) then
+      dbg.print{"Building list of modules that provide this package\n"}
+      c  = {}
+      ia = ia + 1; a[ia] = i18n("m_ProvidedFrom",{})
+      dbg.print{"#entryPA: ",#entryPA,"\n"}
+      dbg.printT("entryPA",entryPA)
+      for i = 1,#entryPA do
+         local v = entryPA[i]
+         dbg.printT("v",v)
+         if (not v.hidden or show_hidden) then
+            c[#c+1] = "\n       " .. v.fullName
+         end
+      end
+      c[#c+1] = "\n"
+      ia = ia + 1; a[ia] = concatTbl(c,"")
+      dbg.print{"results: \"",a[ia],"\"\n"}
+      ia = ia + 1; a[ia] = "\n"
+   end
+
+
+   if (entryT.provides ~= nil) then
+      local c = {}
+      for ic = 1, #entryT.provides do
+         c[ic] = colorize("blue",entryT.provides[ic]) .. " (E)"
+      end
+
+      ia = ia + 1; a[ia] = i18n("m_ModProvides",{})
+      ia = ia + 1; a[ia] = "\n       " .. concatTbl(c,", ")
+      ia = ia + 1; a[ia] = "\n"
+   end
+
+   if (entryT.help ~= nil) then
       ia = ia + 1; a[ia] = "\n    Help:\n"
       for s in entryT.help:split("\n") do
          ia = ia + 1; a[ia] = "      "
@@ -929,14 +1395,16 @@ function M._Level2(self, sn, entryA, possibleA)
       end
    end
 
+   if (tailMsg) then
+      ia = ia + 1; a[ia] = "\n"
+      ia = ia + 1; a[ia] = tailMsg
+   end
+      
+
    ia = ia + 1; a[ia] = "\n"
    local name = self:getExactMatch()
    if (name) then
-      ia = ia + 1; a[ia] = border
-      ia = ia + 1; a[ia] = "  To find other possible module matches do:\n"
-      ia = ia + 1; a[ia] = "      module -r spider '.*"
-      ia = ia + 1; a[ia] = name
-      ia = ia + 1; a[ia] = ".*'\n\n"
+      ia = ia + 1; a[ia] = i18n("m_Regex_Spider",{border=border,name=name})
    end
 
    dbg.fini("Spider:_Level2")

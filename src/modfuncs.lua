@@ -27,7 +27,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -57,15 +57,16 @@ require("utils")
 require("string_utils")
 require("parseVersion")
 require("TermWidth")
+require("declare")
 
 local BeautifulTbl = require("BeautifulTbl")
+local MName        = require("MName")
 local Version      = require("Version")
 local dbg          = require("Dbg"):dbg()
 local hook         = require("Hook")
 local max          = math.max
-local MName        = require("MName")
 local _concatTbl   = table.concat
-local pack         = (_VERSION == "Lua 5.1") and argsPack or table.pack
+local pack         = (_VERSION == "Lua 5.1") and argsPack or table.pack -- luacheck: compat
 
 --------------------------------------------------------------------------
 -- Special table concat function that knows about strings and numbers.
@@ -94,13 +95,11 @@ end
 -- Validate a function with only string arguments.
 -- @param cmdName The command which is getting its arguments validated.
 local function validateStringArgs(cmdName, ...)
-   local arg = pack(...)
-   for i = 1, arg.n do
-      local v = arg[i]
+   local argA = pack(...)
+   for i = 1, argA.n do
+      local v = argA[i]
       if (type(v) ~= "string") then
-         local fn = myFileName()
-         mcp:report("Syntax error in file: ",fn, "\n with command: ",
-                   cmdName, " One or more arguments are not strings\n")
+         mcp:report{msg="e_Args_Not_Strings", fn = myFileName(), cmdName = cmdName}
          return false
       end
    end
@@ -115,9 +114,7 @@ local function validateStringTable(n, cmdName, t)
    for i = 1, n do
       local v = t[i]
       if (type(v) ~= "string") then
-         local fn = myFileName()
-         mcp:report("Syntax error in file: ",fn, "\n with command: ",
-                   cmdName, " One or more arguments are not strings\n")
+         mcp:report{msg="e_Args_Not_Strings", fn = myFileName(), cmdName = cmdName}
          return false
       end
    end
@@ -130,9 +127,8 @@ local function validateStringTable(n, cmdName, t)
       end
 
       if (not valid) then
-         local fn = myFileName()
-         mcp:report("Syntax error in file: ",fn, "\n with command: ",
-                    cmdName, " priority must be equal to or greater than 10\n")
+         mcp:report{msg="e_Args_Not_Strings", fn = myFileName(), cmdName = cmdName}
+         return false
       end
    end
 
@@ -143,23 +139,19 @@ end
 -- Validate a function with only string module names table.
 -- @param cmdName The command which is getting its arguments validated.
 local function validateArgsWithValue(cmdName, ...)
-   local arg = pack(...)
+   local argA = pack(...)
 
-   for i = 1, arg.n -1 do
-      local v = arg[i]
+   for i = 1, argA.n -1 do
+      local v = argA[i]
       if (type(v) ~= "string") then
-         local fn = myFileName()
-         mcp:report("Syntax error in file: ",fn, " with command: ",
-                   cmdName, " One or more arguments are not strings\n")
+         mcp:report{msg="e_Args_Not_Strings", fn = myFileName(), cmdName = cmdName}
          return false
       end
    end
 
-   local v = arg[arg.n]
+   local v = argA[argA.n]
    if (type(v) ~= "string" and type(v) ~= "number" and type(v) ~= "boolean") then
-      local fn = myFileName()
-      mcp:report("Syntax error in file: ",fn, " with command: ",
-                cmdName, " The last argument is  not string or number\n")
+      mcp:report{msg="e_Args_Not_Strings", fn = myFileName(), cmdName = cmdName}
       return false
    end
    return true
@@ -169,12 +161,12 @@ end
 -- Validate a function with only string module names table.
 -- @param cmdName The command which is getting its arguments validated.
 local function validateModules(cmdName, ...)
-   local arg = pack(...)
-   dbg.print{"cmd: ",cmdName, " arg.n: ",arg.n,"\n"}
+   local argA = pack(...)
+   dbg.print{"cmd: ",cmdName, " argA.n: ",argA.n,"\n"}
    local allGood = true
    local fn      = false
-   for i = 1, arg.n do
-      local v = arg[i]
+   for i = 1, argA.n do
+      local v = argA[i]
       if (type(v) == "string") then
          allGood = true
       elseif (type(v) == "table" and v.__waterMark == "MName") then
@@ -186,8 +178,7 @@ local function validateModules(cmdName, ...)
       end
    end
    if (not allGood) then
-      mcp:report("modfuncs: Syntax error in file: ",myFileName(), "\n with command: \"",
-                 cmdName, "\" One or more arguments are not strings\n")
+      mcp:report{msg="e_Args_Not_Strings", fn = myFileName(), cmdName = cmdName}
    end
    return allGood
 end
@@ -205,20 +196,38 @@ function load_module(...)
    return b
 end
 
+function mgrload(required, active)
+   dbg.start{"mgrload(",required,", activeA)"}
+
+   local status  = mcp:mgrload(required, active)
+   dbg.fini("mgrload")
+   return status
+end
+
+
+function load_any(...)
+   dbg.start{"load_any(",concatTbl({...},", "),")"}
+   if (not validateModules("load_any",...)) then return {} end
+
+   local b = mcp:load_any(MName:buildA(mcp:MNameType(), ...))
+   dbg.fini("load_any")
+   return b
+end   
+
 --- PATH functions ---
 --------------------------------------------------------------------------
 -- convert arguments into a table if necessary.
 local function convert2table(...)
-   local arg = pack(...)
-   local t   = {}
+   local argA = pack(...)
+   local t    = {}
 
-   if (arg.n == 1 and type(arg[1]) == "table" ) then
-      t = arg[1]
+   if (argA.n == 1 and type(argA[1]) == "table" ) then
+      t = argA[1]
       t[1] = t[1]:trim()
    else
-      t[1]    = arg[1]:trim()
-      t[2]    = arg[2]
-      t.delim = arg[3]
+      t[1]    = argA[1]:trim()
+      t[2]    = argA[2]
+      t.delim = argA[3]
    end
    t.priority = tonumber(t.priority or "0")
    return t
@@ -298,9 +307,7 @@ end
 function execute(t)
    dbg.start{"execute(...)"}
    if (type(t) ~= "table" or not t.cmd or type(t.modeA) ~= "table") then
-      mcp:report("Syntax error in file: ", myFileName(), "\n with command: execute",
-                 "\nsyntax is:\n",
-                 "    execute{cmd=\"command string\",modeA={\"load\",...}}\n")
+      mcp:report{msg="e_Execute_Msg", fn = myFileName()}
       return
    end
    local b = mcp:execute(t)
@@ -311,12 +318,21 @@ end
 --------------------------------------------------------------------------
 -- This function allows only module to claim the name.  It is a
 -- generalized prereq/conflict function.
-function family(...)
-   dbg.start{"family(",concatTbl({...},", "),")"}
-   if (not validateStringArgs("family",...)) then return end
+function family(name)
+   dbg.start{"family(",name,")"}
+   if (not validateStringArgs("family",name)) then return end
 
-   mcp:family(...)
+   mcp:family(name)
    dbg.fini("family")
+end
+
+--------------------------------------------------------------------------
+-- Provide a list of loaded modules for sites to use
+function loaded_modules()
+   dbg.start{"loaded_modules()"}
+   local a = mcp:loaded_modules()
+   dbg.fini("loaded_modules")
+   return a
 end
 
 --- Inherit function ---
@@ -357,6 +373,15 @@ function isloaded(m)
    dbg.fini("isloaded")
    return mname:isloaded()
 end
+
+function isAvail(m)
+   dbg.start{"isAvail(",m,")"}
+   if (not validateStringArgs("isAvail",m)) then return false end
+   local mname = MName:new("load", m)
+   dbg.fini("isAvail")
+   return mname:valid()
+end
+
 
 function myFileName()
    return mcp:myFileName()
@@ -416,6 +441,13 @@ function LmodMessage(...)
    return b
 end
 
+--------------------------------------------------------------------------
+-- Print a message
+function LmodMsgRaw(...)
+   local b = mcp:msg_raw(...)
+   return b
+end
+
 ---------------------------------------------------------------------------
 -- Return the version of Lmod.
 function LmodVersion()
@@ -426,6 +458,10 @@ end
 -- Return shell that invoked Lmod.
 function myShellName()
    return mcp:myShellName()
+end
+
+function myShellType()
+   return mcp:myShellType()
 end
 
 --------------------------------------------------------------------------
@@ -447,19 +483,17 @@ function help(...)
    dbg.fini("help")
 end
 
-function userInGroup(group)
-   local grps   = capture("groups")
-   local found  = false
-   local userId = capture("id -u")
-   local isRoot = tonumber(userId) == 0
-   for g in grps:split("[ \n]") do
-      if (g == group or isRoot)  then
-         found = true
-         break
-      end
-   end
-   return found
+
+function userInGroups(...)
+   dbg.start{"userInGroups(...)"}
+   if (not validateStringArgs("userInGroups",...)) then return end
+   local iret = mcp:userInGroups(...)
+   dbg.fini("userInGroups")
+   return iret
 end
+
+declare("userInGroup")
+userInGroup = userInGroups
 
 --------------------------------------------------------------------------
 -- Convert version to canonical so that it can be used in a comparison.
@@ -477,7 +511,7 @@ function prereq(...)
    dbg.start{"prereq(",concatTbl({...},", "),")"}
    if (not validateModules("prereq", ...)) then return end
 
-   mcp:prereq(MName:buildA("load", ...))
+   mcp:prereq(MName:buildA("mt", ...))
    dbg.fini("prereq")
 end
 
@@ -488,7 +522,7 @@ function prereq_any(...)
    dbg.start{"prereq_any(",concatTbl({...},", "),")"}
    if (not validateModules("prereq_any",...)) then return end
 
-   mcp:prereq_any(MName:buildA("load",...))
+   mcp:prereq_any(MName:buildA("mt",...))
    dbg.fini("conflict")
 end
 
@@ -498,7 +532,7 @@ function conflict(...)
    dbg.start{"conflict(",concatTbl({...},", "),")"}
    if (not validateStringArgs("conflict",...)) then return end
 
-   mcp:conflict(MName:buildA("load",...))
+   mcp:conflict(MName:buildA("mt",...))
    dbg.fini()
 end
 
@@ -523,7 +557,7 @@ end
 -- @param is the starting version
 -- @param ie the ending version.
 function between(m,is,ie)
-   dbg.start{"between(",m,is,ie,")"}
+   dbg.start{"between(","\"",m,"\",\"",is,"\",\"",ie,"\")"}
 
    local mname = MName:new("load", m, "between", is, ie)
 
@@ -592,7 +626,6 @@ end
 function add_property(...)
    dbg.start{"add_property(",concatTbl({...},", "),")"}
    if (not validateStringArgs("add_property",...)) then return end
-
    mcp:add_property(...)
    dbg.fini("add_property")
 end
@@ -682,39 +715,24 @@ function moduleStackTraceBack(msg)
    return _concatTbl(bb,"")
 end
 
+function requireFullName()
+    if (myModuleUsrName() ~= myModuleFullName()) then
+       LmodError{msg="e_RequireFullName", sn = myModuleName(), fullName= myModuleFullName()}
+    end
+end
 
 
 --------------------------------------------------------------------------
 -- Write "false" to stdout and exit.
 function LmodErrorExit()
-   io.stdout:write("\nfalse\n")
+   Shell:report_failure()
    os.exit(1)
 end
 
 --------------------------------------------------------------------------
 -- Print msgs, traceback then exit.
 function LmodSystemError(...)
-   local label  = colorize("red", "Lmod has detected the following error: ")
-   local twidth = TermWidth()
-   local s      = {}
-
-
-   s[#s+1] = buildMsg(twidth, label, ...)
-   s[#s+1] = "\n"
-
-   local a = _concatTbl(stackTraceBackA,"")
-   if (a:len() > 0) then
-       s[#s+1] = a
-       s[#s+1] = "\n"
-   end
-   s[#s+1] = moduleStackTraceBack()
-   s[#s+1] = "\n"
-
-   s = hook.apply("msgHook","lmoderror",s) or s
-   s = _concatTbl(s,"")
-
-   io.stderr:write(s,"\n")
-   LmodErrorExit()
+   MasterControl:error(...)
 end
 
 --------------------------------------------------------------------------
@@ -737,7 +755,7 @@ end
 -- not loaded.  The reverse of an unload is a no-op.
 function unload(...)
    dbg.start{"unload(",concatTbl({...},", "),")"}
-   if (not validateStringArgs("unload",...)) then return {} end
+   if (not validateModules("unload",...)) then return {} end
 
    local b = mcp:unload(MName:buildA("mt",...))
    dbg.fini("unload")
@@ -761,12 +779,44 @@ end
 -- function is a no-op.
 function always_unload(...)
    dbg.start{"always_unload(",concatTbl({...},", "),")"}
-   if (not validateStringArgs("always_unload",...)) then return {} end
+   if (not validateModules("always_unload",...)) then return {} end
 
    local b = mcp:unload(MName:buildA("mt",...))
    dbg.fini("always_unload")
    return b
 end
 
---- Family function ---
+function depends_on(...)
+   dbg.start{"depends_on(",concatTbl({...},", "),")"}
+   if (not validateModules("depends_on",...)) then return {} end
+
+   local b = mcp:depends_on(MName:buildA(mcp:MNameType(),...))
+   dbg.fini("depends_on")
+end
+
+function extensions(...)
+   dbg.start{"extensions(",concatTbl({...},", "),")"}
+   if (not validateStringArgs("extensions",...)) then return {} end
+
+   local b = mcp:extensions(...)
+   dbg.fini("extensions")
+end
+
+function color_banner(color)
+   mcp:color_banner(color)
+end
+
+
+--- subprocess function ---
+
+function subprocess(cmd)
+   dbg.start{"subprocess(",cmd,")"}
+   local p = io.popen(cmd)
+   if p == nil then
+      return nil
+   end
+   local ret = p:read("*all")
+   p:close()
+   return ret
+end
 

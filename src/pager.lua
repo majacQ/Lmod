@@ -17,7 +17,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -46,13 +46,14 @@ require("haveTermSupport")
 
 local dbg       = require("Dbg"):dbg()
 local concatTbl = table.concat
+local cosmic    = require("Cosmic"):singleton()
 
 local function argsPack(...)
-   local  arg = { n = select("#", ...), ...}
-   return arg
+   local  argA = { n = select("#", ...), ...}
+   return argA
 end
 
-local pack        = (_VERSION == "Lua 5.1") and argsPack or table.pack
+local pack        = (_VERSION == "Lua 5.1") and argsPack or table.pack -- luacheck: compat
 
 s_pager = false
 
@@ -61,9 +62,9 @@ s_pager = false
 -- All input arguments to stream f
 -- @param f A stream object.
 function bypassPager(f, ...)
-   local arg = pack(...)
-   for i = 1, arg.n do
-      f:write(arg[i])
+   local argA = pack(...)
+   for i = 1, argA.n do
+      f:write(argA[i])
    end
 end
 
@@ -73,7 +74,7 @@ end
 -- @param f A stream object.
 function usePager(f, ...)
    dbg.start{"usePager()"}
-   s_pager = "LESS="..LMOD_PAGER_OPTS.." "..s_pager
+   s_pager = "LESS="..cosmic:value("LMOD_PAGER_OPTS").." "..s_pager
    local p = io.popen(s_pager .. " 1>&2" ,"w")
    local s = concatTbl({...},"")
    p:write(s)
@@ -85,9 +86,10 @@ end
 -- Return usePager if PAGER exists otherwise,  return bypassPager
 function buildPager()
    local func  = bypassPager
-   local pager = LMOD_PAGER
-   s_pager     = find_exec_path(pager)
-   if (s_pager) then
+   local pager = cosmic:value("LMOD_PAGER")
+   local found
+   s_pager, found = findInPath(pager)
+   if (found) then
       func     = usePager
    end
    return func

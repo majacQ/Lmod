@@ -10,7 +10,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -44,35 +44,53 @@ local getenv      = os.getenv
 local remove      = table.remove
 local s_frameStk  = false
 
-local function new(self)
+local function new(self, t)
    dbg.start{"FrameStk:new()"}
+   t = t or {}
    local o = {}
    setmetatable(o,self)
    self.__index = self
    o.__count    = 1
-   o.__origMT   = MT:singleton()
+   o.__origMT   = MT:singleton(t)
    o.__stack    = {
       {mname = false, mt = deepcopy(o.__origMT), varT = {} }
    }
    dbg.fini("FrameStk:new")
    return o
 end
-   
-function M.singleton(self)
+
+function M.singleton(self, t)
+   t = t or {}
    if (not s_frameStk) then
-      s_frameStk = new(self)
+      s_frameStk = new(self, t)
       local mpath = getenv(ModulePath)
+      local nodups = true
       if (mpath) then
          local varT       = s_frameStk:varT()
-         varT[ModulePath] = Var:new(ModulePath, mpath)
+         varT[ModulePath] = Var:new(ModulePath, mpath, nodups, ":")
       end
    end
    return s_frameStk
 end
 
-function M.__clear(self)
+function M.__clear(self,t)
    s_frameStk = false
+   t = t or {}
+   if (t.testing) then
+      dbg.start{"FrameStk:__clear(t)"}
+      s_frameStk = self:singleton(t)
+      dbg.fini("FrameStk:__clear")
+   end
 end
+
+function M.resetMPATH2system(self)
+   local varT       = self:varT()
+   local mt         = self:mt()
+   local nodups     = true
+   local mpath      = mt:resetMPATH2system()
+   varT[ModulePath] = Var:new(ModulePath, mpath, nodups, ":")
+end
+
 
 function M.push(self, mname)
    --dbg.start{"FrameStk:push(mname)"}
@@ -105,8 +123,8 @@ function M.atTop(self)
    return (self.__count == 2)
 end
 
-function M.count(self)
-   return self.__count
+function M.stackDepth(self)
+   return self.__count - 1
 end
 
 function M.fullName(self)
@@ -115,18 +133,12 @@ function M.fullName(self)
    return mname:fullName()
 end
 
-function M.sn(self)
-   local top   = self.__stack[self.__count]
-   local mname = top.mname
-   return mname:sn()
-end
-
 function M.userName(self)
    local top   = self.__stack[self.__count]
    local mname = top.mname
    return mname:userName()
 end
-   
+
 function M.fn(self)
    local top   = self.__stack[self.__count]
    local mname = top.mname
@@ -144,7 +156,7 @@ function M.version(self)
    local mname = top.mname
    return mname:version()
 end
-   
+
 function M.mt(self)
    local top   = self.__stack[self.__count]
    return top.mt
@@ -159,10 +171,14 @@ function M.varT(self)
    return top.varT
 end
 
+function M.count(self)
+   return self.__count
+end
+
 function M.traceBack(self)
    local a      = {}
    local stack  = self.__stack
-   local icount = self.__count 
+   local icount = self.__count
    for i = icount, 2,-1 do
       a[#a+1] = stack[i].mname
    end

@@ -17,7 +17,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -52,7 +52,6 @@ local RCFileA = {
    pathJoin(cmdDir(),"../../etc/lmodrc.lua"),
    pathJoin("/etc/lmodrc.lua"),
    pathJoin(getenv("HOME"),".lmodrc.lua"),
-   getenv("LMOD_RC"),
 }
 
 local s_classObj    = false
@@ -65,15 +64,22 @@ local function buildRC(self)
    local s_propT       = {}
    local s_scDescriptT = {}
    local s_rcFileA     = {}
-   
+
+   local lmodrc_env = getenv("LMOD_RC") or ""
+   if (lmodrc_env:len() > 0) then
+      for rc in lmodrc_env:split(":") do
+         RCFileA[#RCFileA+1] = rc
+      end
+   end
+
    for i = 1,#RCFileA do
       repeat
-         local f        = RCFileA[i]
+         local f  = RCFileA[i]
          local fh = open(f)
          if (not fh) then break end
-            
+
          assert(loadfile(f))()
-         s_rcFileA[#s_rcFileA+1] = abspath(f)
+         s_rcFileA[#s_rcFileA+1] = f
          fh:close()
 
          local propT       = _G.propT or {}
@@ -95,21 +101,47 @@ local function buildRC(self)
 end
 
 
-
 local function new(self)
+   dbg.start{"ReadLmodRC:new()"}
    local o = {}
    setmetatable(o,self)
    self.__index = self
 
    buildRC(o)
 
+   dbg.fini("ReadLmodRC:new")
    return o
 end
 
+function M.validPropValue(self,  name, value, t)
+   dbg.start{"ReadLmodRC:validPropValue(\"",name,"\", \"", value,"\", t)"}
+   local propDisplayT = self:propT()
+   local propKindT    = propDisplayT[name]
+
+   if (propKindT == nil) then
+      LmodError{msg="e_No_PropT_Entry", routine = "MT:add_property()", location = "entry", name = name}
+   end
+   local validT = propKindT.validT
+   if (validT == nil) then
+      LmodError{msg="e_No_PropT_Entry", routine = "MT:add_property()", location = "validT table", name = name}
+   end
+
+   for v in value:split(":") do
+      if (validT[v] == nil) then
+         LmodError{msg="e_No_ValidT_Entry", routine = "MT:add_property()", name = name, value = value}
+      end
+      t[v] = 1
+   end
+   dbg.fini("ReadLmodRC:validPropValue")
+end
+
+
 function M.singleton(self)
+   dbg.start{"ReadLmodRC:singleton()"}
    if (not s_classObj) then
       s_classObj = new(self)
    end
+   dbg.fini("ReadLmodRC:singleton")
    return s_classObj
 end
 

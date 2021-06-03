@@ -10,7 +10,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -40,22 +40,26 @@ require("serializeTbl")
 require("string_utils")
 require("utils")
 
-local DirTree   = require("DirTree")
-local FrameStk  = require("FrameStk")
-local LocationT = require("LocationT")
-local M         = {}
-local MRC       = require("MRC")
-local dbg       = require("Dbg"):dbg()
-local getenv    = os.getenv
-local s_moduleA = false
-local sort      = table.sort
+local DirTree     = require("DirTree")
+local FrameStk    = require("FrameStk")
+local LocationT   = require("LocationT")
+local M           = {}
+local MRC         = require("MRC")
+local cosmic      = require("Cosmic"):singleton()
+local dbg         = require("Dbg"):dbg()
+local getenv      = os.getenv
+local s_moduleA   = false
+local sort        = table.sort
+local exact_match = cosmic:value("LMOD_EXACT_MATCH")
+local find_first  = cosmic:value("LMOD_TMOD_FIND_FIRST")
 
 -- print(__FILE__() .. ':' .. __LINE__())
 ----------------------------------------------------------------------
 -- We use the trick of penalizing the parsed version string to mark defaults
--- The order is as follows:
+-- The order is as follows based on the ascii table:
 --     *     -> Words like beta start with an asterisk
 --   [0-9]   -> Numbers are zero patted to nine places
+--     M     -> A module with no version (meta-module)
 --     ^     -> Versions marked by default or .version or .modulerc
 --     s     -> Versions marked by System .modulerc
 --     u     -> Versions marked by User   .modulerc
@@ -109,13 +113,17 @@ local function GroupIntoModules(self, level, maxdepth, mpath, dirT, T)
    if (next(dirT.fileT) ~= nil) then
       for fullName, v in pairs(dirT.fileT) do
          local defaultT = {}
+         local defaultA = {}
          if (next(dirT.defaultT) ~= nil and (dirT.defaultT.value == fullName)) then
             defaultT = dirT.defaultT
          end
-         local metaModuleT = v
-         metaModuleT.pV = "~"
-         metaModuleT.wV = "~"
-         T[fullName] = {file = v.fn, metaModuleT = metaModuleT, fileT = {}, dirT = {}, defaultT = defaultT, mpath = mpath}
+         if (next(dirT.defaultA) ~= nil) then
+            defaultA = dirT.defaultA
+         end
+         local fileT = {}
+         fileT[fullName] = {Version = false, canonical = "", fn = v.fn, luaExt = v.luaExt, mpath = mpath,
+                            pV = "M.*zfinal", wV = "M.*zfinal", propT = v.propT}
+         T[fullName] = { fileT = fileT, defaultT = defaultT, defaultA = defaultA, dirT = {}}
       end
    end
    for path, v in pairs(dirT.dirT) do
@@ -152,11 +160,11 @@ end
 
 local function find_vA(name, moduleA)
    -- First find sn and collect all v's into vA
-   local versionStr = nil
+   local versionStr = false
    local vA         = {}
    local sn         = name
-   local done       = false
    local idx        = nil
+   local done       = false
 
    while true do
       for i = 1, #moduleA do
@@ -180,6 +188,8 @@ local function find_vA(name, moduleA)
    if (idx) then
       versionStr = name:sub(idx+1,-1)
    end
+   dbg.print{"sn: ",sn,", versionStr: ",versionStr,"\n"}
+   dbg.printT("vA",vA)
    return sn, versionStr, vA
 end
 
@@ -188,8 +198,9 @@ local function find_vB(sn, versionStr, vA)
    local vB      = {}
 
    for i = 1,#vA do
-      local v    = vA[i]
-      local done = (versionStr == nil)
+      local v
+      local vv   = vA[i]
+      local done = (versionStr == false)
       local idx  = 1
       local vStr = versionStr
       local jdx  = idx
@@ -203,7 +214,7 @@ local function find_vB(sn, versionStr, vA)
             jdx  = idx + 1
          end
          local key   = pathJoin(sn, vStr)
-         local value = v.dirT[key]
+         local value = vv.dirT[key]
          if (value) then
             v = value
             if (vStr == versionStr) then
@@ -213,8 +224,13 @@ local function find_vB(sn, versionStr, vA)
             done = true
          end
       end
-      vB[#vB + 1] = v
+      if (versionStr == false or next{v} == nil) then
+         vB[#vB + 1] = vv
+      elseif (v) then
+         vB[#vB + 1] = v
+      end
    end
+   dbg.printT("vB",vB)
    return fullStr, vB
 end
 
@@ -228,23 +244,25 @@ local function search(name, moduleA)
 
    dbg.print{"name: ",name,", sn: ",sn,", versionStr: ",versionStr, " fullStr: ",fullStr,"\n"}
 
+   local extended_default = cosmic:value("LMOD_EXTENDED_DEFAULT")
+
    local fileA = {}
    for i = 1,#vB do
       fileA[i] = {}
-      collectFileA(sn, fullStr, vB[i], fileA[i])
+      collectFileA(sn, fullStr, extended_default, vB[i], fileA[i])
    end
    dbg.fini("ModuleA search")
    return sn, versionStr, fileA
 end
 
 function M.applyWeights(self,fullNameDfltT)
-
+   dbg.start{"ModuleA:applyWeights(fullNameDfltT)"}
    for fullName, weight in pairs(fullNameDfltT) do
       repeat
          local sn, versionStr, vA = find_vA(fullName, self.__moduleA)
          if (sn == nil) then break end
          local fullStr, vB        = find_vB(sn,  versionStr, vA)
-         
+
          for i = 1, #vB do
             local v = vB[i]
             if (next(v.fileT) ~= nil) then
@@ -264,20 +282,22 @@ function M.applyWeights(self,fullNameDfltT)
          end
       until true
    end
+   dbg.fini("ModuleA:applyWeights")
 end
 
 
 function M.__find_all_defaults(self)
+   dbg.start{"ModuleA:__find_all_defaults()"}
    local moduleA     = self.__moduleA
    local defaultT    = self.__defaultT
    local show_hidden = masterTbl().show_hidden
    local mrc         = MRC:singleton()
 
-   local function find_all_defaults_helper(level,isNVV, mpath, sn, v)
+   local function l_find_all_defaults_helper(level,isNVV, mpath, sn, v)
       local weight, keepLooking, fn, idx
-      local ext, count, myfullName 
+      local ext, count, myfullName
       local found = false
-      
+
       if (defaultT[sn]) then
          weight      = defaultT[sn].weight
          count       = defaultT[sn].count
@@ -290,21 +310,22 @@ function M.__find_all_defaults(self)
          keepLooking = true
          count       = 0
       end
-      
+
       if (keepLooking) then
-         if (v.file) then
-            defaultT[sn] = {weight = " ", fullName = sn, fn = v.file, count = 1}
+         if (v.file and (show_hidden or mrc:isVisible({fullName=sn, sn=sn, fn=v.file}))) then
+            defaultT[sn] = {weight = "999999999.*zfinal", fullName = sn, fn = v.file, count = 1}
          elseif (next(v.fileT) ~= nil) then
             for fullName, vv in pairs(v.fileT) do
-               if (show_hidden or isVisible(mrc, fullName)) then
+               local vis = mrc:isVisible({fullName=fullName, sn=sn, fn=vv.fn}) or isMarked(vv.wV)
+               if (show_hidden or vis) then
                   count = count + 1
-               end
-               if (vv.wV > weight) then
-                  found      = true
-                  weight     = vv.wV
-                  ext        = vv.luaExt and ".lua" or ""
-                  fn         = pathJoin(mpath, fullName .. ext)
-                  myfullName = fullName
+                  if (vis and (vv.wV > weight)) then
+                     found      = true
+                     weight     = vv.wV
+                     ext        = vv.luaExt and ".lua" or ""
+                     fn         = pathJoin(mpath, fullName .. ext)
+                     myfullName = fullName
+                  end
                end
             end
             if (found) then
@@ -318,10 +339,10 @@ function M.__find_all_defaults(self)
       end
       if (next(v.dirT) ~= nil) then
          for name, vv in pairs(v.dirT) do
-            find_all_defaults_helper(level+1,isNVV, mpath, sn, vv)
+            l_find_all_defaults_helper(level+1,isNVV, mpath, sn, vv)
          end
       end
-   end 
+   end
 
    local isNVV      = self.__isNVV
    local level      = 0
@@ -329,7 +350,7 @@ function M.__find_all_defaults(self)
       local T      = moduleA[i].T
       local mpath  = moduleA[i].mpath
       for sn, v in pairs(T) do
-         find_all_defaults_helper(level+1,isNVV, mpath, sn, v)
+         l_find_all_defaults_helper(level+1,isNVV, mpath, sn, v)
       end
    end
 
@@ -338,58 +359,53 @@ function M.__find_all_defaults(self)
       t[v.fn] = { sn = k, count = v.count, fullName = v.fullName, weight = v.weight }
    end
    self.__defaultT = t
+   dbg.fini("ModuleA:__find_all_defaults")
 end
 
-
-local function regular_cmp(x,y)
-   return x.pV < y.pV
-end
 
 function M.build_availA(self)
    dbg.start{"ModuleA:build_availA()"}
    local show_hidden = masterTbl().show_hidden
    local mrc         = MRC:singleton()
 
-   local function build_availA_helper(mpath, sn, v, A)
+   local function l_build_availA_helper(mpath, sn, v, A)
       local icnt = #A
       if (v.file ) then
-         if (show_hidden or isVisible(mrc, sn)) then
+         if (show_hidden or mrc:isVisible({fullName=sn,sn=sn,fn=v.file})) then
             local metaModuleT = v.metaModuleT or {}
             A[icnt+1] = { fullName = sn, pV = sn, fn = v.file, sn = sn, propT = metaModuleT.propT}
          end
-      elseif (next(v.fileT) ~= nil) then
+      end
+      if (next(v.fileT) ~= nil) then
          for fullName, vv in pairs(v.fileT) do
-            if (show_hidden or isVisible(mrc, fullName)) then
+            if (show_hidden or mrc:isVisible({fullName=fullName,sn=sn,fn=vv.fn})) then
                icnt    = icnt + 1
-               dbg.print{"    icnt: ", icnt, ", fullName: ",fullName,"\n"}
                A[icnt] = { fullName = fullName, pV = pathJoin(sn,vv.pV), fn = vv.fn, sn = sn, propT = vv.propT}
             end
          end
-      elseif (next(v.dirT) ~= nil) then
+      end
+      if (next(v.dirT) ~= nil) then
          for name, vv in pairs(v.dirT) do
-            build_availA_helper(mpath, sn, vv, A)
+            l_build_availA_helper(mpath, sn, vv, A)
          end
       end
    end
 
-   
+
    local moduleA = self.__moduleA
    local availA  = {}
-   local cmp     = (LMOD_CASE_INDEPENDENT_SORTING == "yes") and
+   local cmp     = (cosmic:value("LMOD_CASE_INDEPENDENT_SORTING") == "yes") and
                     case_independent_cmp or regular_cmp
 
    for i = 1, #moduleA do
       local T         = moduleA[i].T
       local mpath     = moduleA[i].mpath
-      dbg.print{i, ": mpath: ",mpath,"\n"}
       availA[i]       = {mpath = mpath, A= {}}
       for sn, v in pairs(T) do
-         dbg.print{"  sn: ",sn,"\n"}
-         build_availA_helper(mpath, sn, v, availA[i].A)
+         l_build_availA_helper(mpath, sn, v, availA[i].A)
       end
       sort(availA[i].A, cmp)
    end
-
    dbg.fini("ModuleA:build_availA")
    return availA
 end
@@ -467,10 +483,24 @@ function M.inherited_search(self, search_fullName, orig_fn)
 end
 
 function M.search(self, name)
-   if (self.__locationT) then
-      return self.__locationT:search(name)
+   if (self.__isNVV) then
+      return search(name, self.__moduleA)
    end
-   return search(name, self.__moduleA)
+
+   if (not self.__locationT) then
+      self.__locationT = LocationT:new(self.__moduleA)
+   end
+
+   return self.__locationT:search(name)
+end
+
+local function l_checkforNV(T)
+   for sn, vv in pairs(T) do
+      if (next(vv.dirT) ~= nil) then
+         return false
+      end
+   end
+   return true
 end
 
 local function build_from_spiderT(spiderT)
@@ -479,30 +509,39 @@ local function build_from_spiderT(spiderT)
    local mt       = frameStk:mt()
    local mpathA   = mt:modulePathA()
    local moduleA  = {}
+   local isNV     = find_first == "no"
    for i = 1, #mpathA do
       local mpath = mpathA[i]
       if (isDir(mpath)) then
          dbg.print{"pulling mpath: ",mpath," into moduleA\n"}
-         moduleA[#moduleA+1] = { mpath = mpath, T = deepcopy(spiderT[mpath]) }
+         local T = spiderT[mpath]
+         if (T and next(T) ~= nil) then
+            moduleA[#moduleA+1] = { mpath = mpath, T = deepcopy(T) }
+            if (isNV) then
+               isNV = l_checkforNV(T)
+            end
+         end
       end
    end
    dbg.fini("ModuleA build_from_spiderT")
-   return moduleA
+   return moduleA, not isNV
 end
 
 ------------------------------------------------------------
--- This routine updates the self.__moduleA array when 
+-- This routine updates the self.__moduleA array when
 -- MODULEPATH changes.  It has to know about how the Ctor
 -- works so any changes there might be reflected here.
 
 function M.update(self, t)
-   t                  = t or {}
-   dbg.start{"ModuleA:update(spider_cache=",t.spider_cache,")"}
-   local frameStk     = FrameStk:singleton()
-   local mt           = frameStk:mt()
-   local varT         = frameStk:varT()
-   local currentMPATH = varT[ModulePath]:expand()
-   local mpathA       = path2pathA(currentMPATH)
+   t                   = t or {}
+   dbg.start{"ModuleA:update(spider_cache = ",t.spider_cache,")"}
+   local frameStk      = FrameStk:singleton()
+   local mt            = frameStk:mt()
+   local varT          = frameStk:varT()
+   local currentMPATH  = varT[ModulePath]:expand()
+   local clearDblSlash = true
+   local mpathA        = path2pathA(currentMPATH,':', clearDblSlash)
+   local terse         = masterTbl().terse
 
    ------------------------------------------------------------
    -- Store away the old moduleA entries in T (hash table).
@@ -522,7 +561,7 @@ function M.update(self, t)
 
    moduleA = {}
    for i = 1,#mpathA do
-      repeat 
+      repeat
          local mpath = mpathA[i]
          if (not isDir(mpath)) then break end
          local entry = T[mpath]
@@ -534,12 +573,12 @@ function M.update(self, t)
             local spiderT = false
             local dbT     = false
             if (t.spider_cache) then
-               local cache = require("Cache"):singleton{quiet= masterTbl.terse, buildCache=true}
+               local cache = require("Cache"):singleton{quiet=terse, buildCache=true}
                spiderT, dbT = cache:build()
             end
             local mA_obj = self:__new( {mpath}, mt:maxDepthT(), getModuleRCT(), spiderT)
             local mA     = mA_obj:moduleA()
-            moduleA[#moduleA + 1] = { mpath = mA[1].mpath, T = mA[1].T} 
+            moduleA[#moduleA + 1] = { mpath = mA[1].mpath, T = mA[1].T}
 
             ------------------------------------------------------------------
             -- must transfer isNVV state over from new mpath entry.
@@ -550,7 +589,7 @@ function M.update(self, t)
       until true
    end
    self.__defaultT  = {}
-   self.__locationT = (not self.__isNVV) and LocationT:new(moduleA) or false
+   self.__locationT = false
    self.__moduleA   = moduleA
    mt:updateMPathA(mpathA)
    dbg.fini("ModuleA:update")
@@ -564,27 +603,32 @@ function M.__new(self, mpathA, maxdepthT, moduleRCT, spiderT)
 
    local dirTree   = false
    self.__index    = self
-   o.__isNVV       = false
+   o.__isNVV       = (find_first ~= "no")
    spiderT         = spiderT or {}
    if (next(spiderT) ~= nil) then
-      o.__spiderBuilt = true
+      o.__spiderBuilt        = true
       dbg.print{"calling build_from_spiderT()\n"}
-      o.__moduleA     = build_from_spiderT(spiderT)
+      dbg.printT("spiderT",spiderT)
+      o.__moduleA, o.__isNVV = build_from_spiderT(spiderT)
    else
       dbg.print{"calling DirTree:new()\n"}
       dirTree         = DirTree:new(mpathA)
-      dbg.print{"finish DirTree:new()\n"}
       o.__spiderBuilt = false
       o.__moduleA     = build(o, maxdepthT, dirTree:dirA())
    end
 
+   dbg.printT("moduleA:",o.__moduleA)
+   dbg.print{"isNVV: ",o.__isNVV,"\n"}
    if (moduleRCT and next(moduleRCT) ~= nil) then
       dbg.print{"apply weights\n"}
       local mrc       = MRC:singleton(moduleRCT)
       o:applyWeights(mrc:fullNameDfltT())
    end
-   o.__locationT   = (not o.__isNVV) and LocationT:new(o.__moduleA) or false
+   local mrc       = MRC:singleton()
+   dbg.printT("mrcMpathT",mrc:mrcMpathT())
+   o.__locationT   = false
    o.__defaultT    = {}
+   
 
    dbg.fini("ModuleA:__new")
    return o
@@ -603,10 +647,20 @@ function M.spiderBuilt(self)
 end
 
 function M.locationT(self)
+   if (self.__isNVV) then
+      return {}
+   end
+   if (not self.__locationT) then
+      self.__locationT = LocationT:new(self.__moduleA)
+   end
    return self.__locationT:locationT()
 end
 
 function M.defaultT(self)
+   if (exact_match == "yes") then
+      return self.__defaultT
+   end
+
    if (next(self.__defaultT) == nil) then
       self:__find_all_defaults()
    end
@@ -614,39 +668,43 @@ function M.defaultT(self)
 end
 
 function M.singleton(self, t)
+   --dbg.start{"ModuleA:singleton(t)"}
    t = t or {}
    if (t.reset or (s_moduleA and s_moduleA:spiderBuilt())) then
-      self:__clear()
+      --dbg.print{"Wiping out old value of s_moduleA\n"}
+      self:__clear{testing=t.reset}
    end
    if (not s_moduleA) then
-      local masterTbl    = masterTbl()
-      local frameStk     = FrameStk:singleton()
-      local mt           = frameStk:mt()
-      local spiderT      = false
-      local dbT          = false
-      
+      local frameStk = FrameStk:singleton()
+      local mt       = frameStk:mt()
+      local spiderT  = false
+      local dbT      = false
+
       if (t.spider_cache) then
-         local cache = require("Cache"):singleton{quiet= masterTbl.terse, buildCache=true}
+         local cache  = require("Cache"):singleton{quiet=masterTbl().terse, buildCache=true}
          spiderT, dbT = cache:build()
       end
       s_moduleA = self:__new(mt:modulePathA(), mt:maxDepthT(), getModuleRCT(), spiderT)
    end
 
-
-   if (dbg:active()) then
-      local mA = s_moduleA:moduleA()
-   end
-
+   --dbg.fini("ModuleA:singleton")
    return s_moduleA
 end
 
 
 
-function M.__clear(self)
+function M.__clear(self, t)
+   dbg.start{"ModuleA:__clear()"}
+   t = t or {}
    local MT = require("MT")
    s_moduleA = false
-   FrameStk:__clear()
+   if (t.testing) then
+      FrameStk:__clear{testing=true}
+      local Cache = require("Cache")
+      Cache:__clear()
+   end
    MT:__clearMT{testing=true}
+   dbg.fini("ModuleA:__clear")
 end
 
 return M

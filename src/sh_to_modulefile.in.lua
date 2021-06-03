@@ -1,4 +1,4 @@
-#!@path_to_lua@/lua
+#!@path_to_lua@
 -- -*- lua -*-
 
 --------------------------------------------------------------------------
@@ -40,7 +40,7 @@
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -81,13 +81,19 @@ package.path   = sys_lua_path
 package.cpath  = sys_lua_cpath
 
 local arg_0    = arg[0]
+_G._DEBUG      = false
 local posix    = require("posix")
 local readlink = posix.readlink
 local stat     = posix.stat
 
 local st       = stat(arg_0)
 while (st.type == "link") do
-   arg_0 = readlink(arg_0)
+   local lnk = readlink(arg_0)
+   if (arg_0:find("/") and (lnk:find("^/") == nil)) then
+      local dir = arg_0:gsub("/[^/]*$","")
+      lnk       = dir .. "/" .. lnk
+   end
+   arg_0 = lnk
    st    = stat(arg_0)
 end
 
@@ -97,10 +103,12 @@ if (ia) then
    cmd_dir  = arg_0:sub(1,ja)
 end
 
-package.path  = cmd_dir .. "../tools/?.lua;" ..
-                cmd_dir .. "?.lua;"          ..
+package.path  = cmd_dir .. "../tools/?.lua;"      ..
+                cmd_dir .. "../tools/?/init.lua;" ..
+                cmd_dir .. "?.lua;"               ..
                 sys_lua_path
-package.cpath = sys_lua_cpath
+package.cpath = cmd_dir .. "../lib/?.so;"..
+                sys_lua_cpath
 
 require("strict")
 
@@ -121,7 +129,6 @@ require("utils")
 MF_Base = require("MF_Base")
 
 local Version      = "0.0"
-_G._DEBUG          = false                 -- Required by luaposix 33
 local dbg          = require("Dbg"):dbg()
 local Optiks       = require("Optiks")
 local getenv       = os.getenv
@@ -130,6 +137,7 @@ local setenv_posix = posix.setenv
 local concatTbl    = table.concat
 local s_master     = {}
 local load         = (_VERSION == "Lua 5.1") and loadstring or load
+local pack         = (_VERSION == "Lua 5.1") and argsPack or table.pack -- luacheck: compat
 envT               = false
 
 local keepT = {
@@ -150,11 +158,54 @@ local execT = {
 }
 
 local ignoreA = {
-   "BASH_ENV", "COLUMNS", "DISPLAY", "ENV", "HOME", "LINES", "LOGNAME", "PWD", "SHELL",
-   "SHLVL", "LC_ALL", "SSH_ASKPASS", "SSH_CLIENT", "SSH_CONNECTION", "SSH_TTY", "TERM",
-   "USER", "EDITOR", "HISTFILE", "HISTSIZE", "MAILER", "PAGER", "REPLYTO", "VISUAL",
-   "_", "ENV2", "OLDPWD", "PS1","PS2", "PRINTER", "TTY", "TZ", "GROUP", "HOSTTYPE",
-   "MACHTYPE", "OSTYPE","REMOTEHOST", "VENDOR","HOST","module"
+   "BASH_ENV",
+   "COLUMNS",
+   "DISPLAY",
+   "EDITOR",
+   "ENV",
+   "ENV2",
+   "GROUP",
+   "HISTFILE",
+   "HISTSIZE",
+   "HOME",
+   "HOST",
+   "HOSTTYPE",
+   "LC_ALL",
+   "LINES",
+   "LMOD_CMD",
+   "LMOD_DIR",
+   "LMOD_PKG",
+   "LMOD_ROOT",
+   "LMOD_SETTARG_CMD",
+   "LMOD_SETTARG_FULL_SUPPORT",
+   "LMOD_VERSION",
+   "LOGNAME",
+   "MACHTYPE",
+   "MAILER",
+   "MODULESHOME",
+   "OLDPWD",
+   "OSTYPE",
+   "PAGER",
+   "PRINTER",
+   "PS1",
+   "PS2",
+   "PWD",
+   "REMOTEHOST",
+   "REPLYTO",
+   "SHELL",
+   "SHLVL",
+   "SSH_ASKPASS",
+   "SSH_CLIENT",
+   "SSH_CONNECTION",
+   "SSH_TTY",
+   "TERM",
+   "TTY",
+   "TZ",
+   "USER",
+   "VENDOR",
+   "VISUAL",
+   "_",
+   "module",
 }
 
 
@@ -295,11 +346,13 @@ local function cleanPath(value)
    pathA        = {}
 
    for execName in pairs(execT) do
-      local cmd = findInPath(execName, myPath)
-      if (cmd) then
+      local cmd, found = findInPath(execName, myPath)
+      if (found) then
          local dir = dirname(cmd):gsub("/+$","")
          local p = path_regularize(dir)
-         pathT[p].keep = true
+         if (p and pathT[p]) then
+            pathT[p].keep = true
+         end
       end
    end
 
@@ -356,7 +409,7 @@ function indexPath(old, oldA, new, newA)
       local newEntry = newA[idxN]
 
       icnt = icnt + 1
-      if (icnt > 5) then
+      if (icnt > newN) then
          break
       end
 
@@ -370,7 +423,7 @@ function indexPath(old, oldA, new, newA)
          idxN = idxN + 2 - idxO
          idxO = 1
          if (idxN > idxM) then
-            dbg.fini("indexPath")
+            dbg.fini("(3) indexPath")
             return -1
          end
       end
@@ -422,15 +475,7 @@ function main()
       os.exit(0)
    end
 
-   local LuaCmd = "@path_to_lua@/lua"
-
-   if (LuaCmd:sub(1,1) == "@") then
-      LuaCmd = findInPath("lua")
-      if (LuaCmd == nil) then
-         io.stderr:write("Unable to find lua program")
-         return
-      end
-   end
+   local LuaCmd = findLuaProg()
 
    if (masterTbl.cleanEnv) then
       cleanEnv()
@@ -451,11 +496,17 @@ function main()
       }
    end
 
+   dbg.print{"cmd: ",concatTbl(cmdA," "),"\n"}
+
    local s = capture(concatTbl(cmdA," "))
 
-   local f = io.open("s.log","w")
-   f:write(s)
-   f:close()
+   if (masterTbl.debug > 0) then
+      local f = io.open("s.log","w")
+      if (f) then
+         f:write(s)
+         f:close()
+      end
+   end
 
    local factory = MF_Base.build(masterTbl.style)
 
@@ -463,18 +514,39 @@ function main()
 
    s = concatTbl(factory:process(ignoreT, oldEnvT, envT),"\n")
    if (masterTbl.outFn) then
-      f = io.open(masterTbl.outFn,"w")
-      f:write(s)
-      f:close()
+      local f = io.open(masterTbl.outFn,"w")
+      if (f) then
+         f:write(s,"\n")
+         f:close()
+      else
+         io.stderr:write("Unable to write modulefile named: ",masterTbl.outFn,"\n")
+         os.exit(1);
+      end
    else
       print(s)
    end
 end
 
+function usage()
+   return "Usage: sh_to_modulefile [options] bash_shell_script [script_options]"
+end
+
+
+function my_error(...)
+   local argA = pack(...)
+   for i = 1, argA.n do
+      io.stderr:write(argA[i])
+   end
+   io.stderr:write("\n",usage(),"\n")
+end
+
+
+
 function options()
    local masterTbl     = masterTbl()
-   local usage         = "Usage: sh_to_modulefile [options] bash_shell_script [script_options]"
-   local cmdlineParser = Optiks:new{usage=usage, version=Version}
+   local cmdlineParser = Optiks:new{usage   = usage(),
+                                    error   = my_error,
+                                    version = Version}
 
 
    cmdlineParser:add_option{

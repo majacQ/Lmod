@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------
--- This class is takes a array of strings and produced a multi-column output.
+-- This class takes an array of strings and produced a multi-column output.
 -- Standard usage is:
 --
 --     local ct = ColumnTable:new{tbl=a, gap=2}
@@ -21,7 +21,7 @@ require("strict")
 
 ------------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -315,7 +315,7 @@ end
 function M._display1(self, i, icol)
    local width = self.columnCnt[icol]
    local szA   = self.szA
-   local gap   = self.gap 
+   local gap   = self.gap
    local s     = self.tbl[i] .. blank:rep(width.prt-szA[i].prt+gap)
 
    return s

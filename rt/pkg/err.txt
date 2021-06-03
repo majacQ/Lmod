@@ -2,7 +2,7 @@
 step 1
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing --version
 ===========================
-Modules based on Lua: Version 6.9.1-beta  2016-11-03 14:07 -05:00
+Modules based on Lua: Version 8.4.19  2020-12-13 13:58 -06:00
     by Robert McLay mclay@tacc.utexas.edu
 ===========================
 step 2
@@ -82,7 +82,7 @@ family("MPI")
 step 7
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing swap gcc intel
 ===========================
-Due to MODULEPATH changes the following have been reloaded:
+Due to MODULEPATH changes, the following have been reloaded:
   1) boost/1.53.0     2) mpich/3.0.4     3) pmetis/4.0.3
 ===========================
 step 8
@@ -156,6 +156,6 @@ step 9
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing list
 ===========================
 Currently Loaded Modules:
-  1) intel/13.1.0   2) boost/1.53.0 (m)   3) mpich/3.0.4   4) pmetis/4.0.3
+  1) intel/13.1.0   2) mpich/3.0.4   3) boost/1.53.0 (m)   4) pmetis/4.0.3
   Where:
    m:  built for host and native MIC

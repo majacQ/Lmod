@@ -9,6 +9,9 @@
 --
 -- @module sandbox
 
+_G._DEBUG   = false               -- Required by the new lua posix
+local posix = require("posix")
+
 require("strict")
 
 --------------------------------------------------------------------------
@@ -21,7 +24,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -48,17 +51,20 @@ require("strict")
 require("fileOps")
 require("capture")
 require("modfuncs")
+require("string_utils")
 require("utils")
-_G._DEBUG   = false               -- Required by the new lua posix
-local posix = require("posix")
+require("declare")
 local lfs   = require("lfs")
-
+local dbg   = require("Dbg"):dbg()
 sandbox_run = false
 
+local old_write    = nil
+local file_methods = nil
 
 --------------------------------------------------------------------------
 -- Table containing valid functions for modulefiles.
-sandbox_env = {
+local sandbox_env = {
+  assert   = assert,
   loadfile = loadfile,
   require  = require,
   ipairs   = ipairs,
@@ -73,18 +79,21 @@ sandbox_env = {
                format = string.format, gmatch = string.gmatch, gsub = string.gsub,
                len = string.len, lower = string.lower, match = string.match,
                rep = string.rep, reverse = string.reverse, sub = string.sub,
-               upper = string.upper },
+               upper = string.upper, split = string.split, escape = string.escape},
   table    = { insert = table.insert, remove = table.remove, sort = table.sort,
                concat = table.concat, unpack = table.unpack, sqrt = math.sqrt,
                tan = math.tan, tanh = math.tanh },
   os       = { clock = os.clock, difftime = os.difftime, time = os.time, date = os.date,
-               getenv = os.getenv, execute = os.execute},
+               getenv = os.getenv, execute = os.execute, exit = os.exit },
 
-  io       = { stderr = io.stderr, open = io.open, close = io.close, write = io.write },
+  io       = { stderr = io.stderr, open = io.open, close = io.close, write = io.write,
+               stdout = io.stdout},
 
   package  = { cpath = package.cpath, loaded = package.loaded, loaders = package.loaders,
                loadlib = package.loadlib, path = package.path, preload = package.preload,
                seeall = package.seeall },
+
+  math     = { floor = math.floor, ceil = math.ceil, min = math.min, max = math.max },
 
   ------------------------------------------------------------
   -- lmod functions
@@ -93,10 +102,14 @@ sandbox_env = {
   --- Load family functions ----
 
   load                 = load_module,
+  load_any             = load_any,
   try_load             = try_load,
   try_add              = try_load,
+  mgrload              = mgrload,
   unload               = unload,
   always_load          = always_load,
+  depends_on           = depends_on,
+  
 
   --- Load Modify functions ---
   atleast              = atleast,
@@ -138,24 +151,36 @@ sandbox_env = {
   whatis               = whatis,
   help                 = help,
 
+  -- meta data foo ---
+  extensions           = extensions,
+
   -- Misc --
-  convertToCanonical   = convertToCanonical,
-  LmodVersion          = LmodVersion,
+  LmodMsgRaw           = LmodMsgRaw,
   LmodError            = LmodError,
-  LmodWarning          = LmodWarning,
   LmodMessage          = LmodMessage,
-  mode                 = mode,
-  isloaded             = isloaded,
+  LmodVersion          = LmodVersion,
+  LmodWarning          = LmodWarning,
+  convertToCanonical   = convertToCanonical,
+  hierarchyA           = hierarchyA,
   isPending            = isPending,
+  isloaded             = isloaded,
+  isAvail              = isAvail,
+  loaded_modules       = loaded_modules,
+  mode                 = mode,
+  moduleStackTraceBack = moduleStackTraceBack,
   myFileName           = myFileName,
   myModuleFullName     = myModuleFullName,
-  myModuleUsrName      = myModuleUsrName,
   myModuleName         = myModuleName,
+  myModuleUsrName      = myModuleUsrName,
   myModuleVersion      = myModuleVersion,
   myShellName          = myShellName,
-  hierarchyA           = hierarchyA,
+  myShellType          = myShellType,
+  print                = print,
+  requireFullName      = requireFullName,
   userInGroup          = userInGroup,
-  moduleStackTraceBack = moduleStackTraceBack,
+  userInGroups         = userInGroups,
+  colorize             = colorize,
+  color_banner         = color_banner,
 
 
   -- Normal modulefiles should not use these function(s):
@@ -166,7 +191,7 @@ sandbox_env = {
                                             -- error.
 
   is_spider            = is_spider,         -- This function should not be used.
-                                            -- It is better to use 
+                                            -- It is better to use
                                             --      if (mode() == "spider") then ... end
                                             -- This function will deprecated and will be removed
 
@@ -186,6 +211,13 @@ sandbox_env = {
   splitFileName        = splitFileName,
   abspath              = abspath,
   path_regularize      = path_regularize,
+
+  ------------------------------------------------------------
+  -- dbg functions
+  ------------------------------------------------------------
+  dbg = { active = dbg.active, fini  = dbg.fini, print = dbg.print,
+          print2D = dbg.print2D, printA = dbg.printA, printT = dbg.printT, 
+          start = dbg.start },
 
   ------------------------------------------------------------
   -- lfs functions
@@ -208,9 +240,13 @@ sandbox_env = {
   ------------------------------------------------------------
   -- Misc functions
   ------------------------------------------------------------
+  subprocess           = subprocess,
   capture              = capture,
   UUIDString           = UUIDString,
   execute              = execute,
+  isDefined            = isDefined,
+  isNotDefined         = isNotDefined,
+
   ------------------------------------------------------------
   -- Misc System Values
   ------------------------------------------------------------
@@ -225,15 +261,32 @@ sandbox_env = {
 -- @param t A table
 function sandbox_registration(t)
    if (type(t) ~= "table") then
-      LmodError("sandbox_registration: The argument passed is: \"", type(t),
-                "\". It should be a table.")
+      LmodError{msg="e_missing_table", kind = type(t)}
    end
    for k,v in pairs(t) do
       sandbox_env[k] = v
    end
 end
 
+function sandbox_set_os_exit(func)
+   sandbox_env.os.exit = func
+end
 
+function turn_off_stderr()
+   file_methods = getmetatable(io.stderr).__index  -- any file will do
+   old_write    = file_methods.write
+   file_methods.write =
+      function(f,...)
+         if f ~= io.stderr then
+            return old_write(f,...)
+         end
+         return f
+      end
+end
+
+function turn_on_stderr()
+   file_methods.write = old_write
+end
 
 --------------------------------------------------------------------------
 -- This function is what actually "loads" a modulefile with protection

@@ -25,6 +25,9 @@
 --        10 seconds and it is set at configure time.
 -- @classmod Cache
 
+local posix      = require("posix")
+_G._DEBUG        = false
+
 require("strict")
 
 --------------------------------------------------------------------------
@@ -37,7 +40,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -75,13 +78,18 @@ local MRC        = require("MRC")
 local ReadLmodRC = require('ReadLmodRC')
 local Spider     = require("Spider")
 local concatTbl  = table.concat
+local cosmic     = require("Cosmic"):singleton()
 local dbg        = require("Dbg"):dbg()
 local hook       = require("Hook")
 local lfs        = require("lfs")
-local posix      = require("posix")
+local sort       = table.sort
 local s_cache    = false
 local timer      = require("Timer"):singleton()
 
+local ancient    = cosmic:value("LMOD_ANCIENT_TIME")
+local shortTime  = cosmic:value("LMOD_SHORT_TIME")
+local random     = math.random
+local randomseed = math.randomseed
 --------------------------------------------------------------------------
 -- This singleton construct reads the scDescriptT table that can be
 -- defined in the lmodrc.lua.  Typically this table, if it exists
@@ -119,6 +127,10 @@ local function new(self, t)
       local entry = scDescriptT[j]
       local tt    = {}
       if (entry.timestamp) then
+         local attr = lfs.attributes(entry.timestamp)
+         if (attr and type(attr) == "table") then
+            tt.lastUpdateEpoch = attr.modification
+         end
          hook.apply("parse_updateFn", entry.timestamp, tt)
       end
 
@@ -171,16 +183,33 @@ local function new(self, t)
    o.usrSpiderTFN      = pathJoin(usrCacheDir,usrSpiderT)
    o.systemDirA        = scDirA
    o.dontWrite         = t.dontWrite or false
+   o.noMRC             = t.noMRC or false
    o.buildCache        = false
    o.buildFresh        = false
    o.quiet             = t.quiet     or false
 
    o.dbT               = {}
+   o.providedByT       = {}
    o.spiderT           = {}
    o.mpathMapT         = {}
    o.moduleDirA        = {}
    dbg.fini("Cache.new")
    return o
+end
+
+local function uuid()
+   local time = epoch()
+   local seed = math.floor((time - math.floor(time))*1.0e+6)
+   if (seed == 0) then
+      seed = time
+   end
+   randomseed(seed)
+
+   local template ='xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
+   return string.gsub(template, '[xy]', function (c)
+                         local v = (c == 'x') and random(0, 0xf) or random(8, 0xb)
+                         return string.format('%x', v)
+                                        end)
 end
 
 --------------------------------------------------------------------------
@@ -194,13 +223,13 @@ end
 -- @param t A table with possible dontWrite and quiet entries.
 -- @return A singleton Cache object.
 function M.singleton(self, t)
-   dbg.start{"Cache:cache()"}
+   dbg.start{"Cache:singleton()"}
 
+   t                = t or {}
    if (not s_cache) then
       s_cache   = new(self, t)
    end
 
-   t                = t or {}
    s_cache.quiet    = t.quiet or s_cache.quiet
    if (t.buildCache) then
       s_cache.buildCache = t.buildCache
@@ -232,7 +261,7 @@ function M.singleton(self, t)
       end
    end
 
-   dbg.fini("Cache:cache")
+   dbg.fini("Cache:singleton")
    return s_cache
 end
 
@@ -243,18 +272,20 @@ end
 -- @param self a Cache object
 -- @param spiderTFnA An array of cache files to read and process.
 -- @return the number of directories read.
-local function readCacheFile(self, spiderTFnA)
-   dbg.start{"Cache:readCacheFile(spiderTFnA)"}
+local function l_readCacheFile(self, mpathA, spiderTFnA)
+   dbg.start{"Cache l_readCacheFile(mpathA, spiderTFnA)"}
    local dirsRead  = 0
-   if (masterTbl().ignoreCache or LMOD_IGNORE_CACHE) then
+   local ignore_cache = cosmic:value("LMOD_IGNORE_CACHE")
+   if (masterTbl().ignoreCache or ignore_cache) then
       dbg.print{"LMOD_IGNORE_CACHE is true\n"}
-      dbg.fini("Cache:readCacheFile")
+      dbg.fini("Cache l_readCacheFile")
       return dirsRead
    end
 
    declare("spiderT")
    declare("mpathMapT")
    declare("mrcT")
+   declare("mrcMpathT")
    local mDT        = self.mDT
    local mpathMapT  = self.mpathMapT
    local spiderDirT = self.spiderDirT
@@ -296,8 +327,19 @@ local function readCacheFile(self, spiderTFnA)
          if (valid) then
 
             -- Check for matching default MODULEPATH.
-            assert(loadfile(fn))()
-            mrc:import(_G.mrcT)
+            local resultFunc = loadfile(fn)
+            if (resultFunc == nil) then
+               dbg.print{"Broken cache file: ",fn,"\n"}
+               break
+            end
+            resultFunc() --> Finish the loadfile()
+
+            if (_G.mrcT      == nil or next(_G.mrcT) == nil or
+                _G.mrcMpathT == nil) then
+               LmodError{msg="e_BrokenCacheFn",fn=fn}
+            end
+
+            mrc:import(_G.mrcT, _G.mrcMpathT)
 
             local G_spiderT = _G.spiderT
             for k, v in pairs(G_spiderT) do
@@ -323,7 +365,7 @@ local function readCacheFile(self, spiderTFnA)
       until true
    end
 
-   dbg.fini("Cache:readCacheFile")
+   dbg.fini("Cache l_readCacheFile")
    return dirsRead
 end
 
@@ -360,32 +402,40 @@ end
 -- @param fast if true then only read cache files, do not build them.
 function M.build(self, fast)
    dbg.start{"Cache:build(fast=", fast,")"}
-   local spiderT   = self.spiderT
-   local dbT       = self.dbT
-   local mpathMapT = self.mpathMapT
-   local spider    = Spider:new()
+   local spiderT     = self.spiderT
+   local dbT         = self.dbT
+   local providedByT = self.providedByT
+   local mpathMapT   = self.mpathMapT
+   local spider      = Spider:new()
+
+   -------------------------------------------------------------------
+   -- Ctor w/o system or user MODULERC files.  We will update when
+   -- we need to.
+   local mrc       = MRC:singleton({})
 
    dbg.print{"self.buildCache: ",self.buildCache,"\n"}
    if (not self.buildCache) then
       dbg.fini("Cache:build")
-      return false, false
+      mrc:update()
+      return false, false, false, false
    end
-
+   
    if (next(spiderT) ~= nil) then
       dbg.print{"Using pre-built spiderT!\n"}
       dbg.fini("Cache:build")
-      return spiderT, dbT
+      return spiderT, dbT, mpathMapT, providedByT
    end
 
    local Pairs       = dbg.active() and pairsByKeys or pairs
    local frameStk    = FrameStk:singleton()
    local mt          = frameStk:mt()
+   local mpathA      = mt:modulePathA()
    local masterTbl   = masterTbl()
    local T1          = epoch()
    local sysDirsRead = 0
    dbg.print{"buildFresh: ",self.buildFresh,"\n"}
    if (not (self.buildFresh or masterTbl.checkSyntax)) then
-      sysDirsRead = readCacheFile(self, self.systemDirA)
+      sysDirsRead = l_readCacheFile(self, mpathA, self.systemDirA)
    end
 
    ------------------------------------------------------------------------
@@ -394,8 +444,14 @@ function M.build(self, fast)
    local spiderDirT  = self.spiderDirT
    local usrDirsRead = 0
    if (not (self.buildFresh  or isFile(self.usrCacheInvalidFn))) then
-      usrDirsRead = readCacheFile(self, self.usrSpiderTFnA)
+      usrDirsRead = l_readCacheFile(self, mpathA, self.usrSpiderTFnA)
    end
+
+   local mpathT = {}
+   for i = 1, #mpathA do
+      mpathT[mpathA[i]] = i
+   end
+
 
    local dirA   = {}
    local numMDT = 0
@@ -403,15 +459,27 @@ function M.build(self, fast)
       numMDT = numMDT + 1
       if (not v) then
          dbg.print{"rebuilding cache for directory: ",k,"\n"}
-         dirA[#dirA+1] = k
+         local idx = mpathT[k] or 0
+         dirA[#dirA+1] = { mpath = k, idx = idx}
       end
+   end
+   local function cmp(a,b)
+      return a.idx < b.idx
+   end
+
+   sort(dirA, cmp)
+
+   local mpA = {}
+   for i = 1, #dirA do
+      mpA[#mpA+1] = dirA[i].mpath
    end
 
    local dirsRead = sysDirsRead + usrDirsRead
    if (dirsRead == 0 and fast and numMDT == #dirA) then
       dbg.print{"Fast and dirsRead: ",dirsRead,"\n"}
       dbg.fini("Cache:build")
-      return nil, nil
+      mrc:update()
+      return false, false, false, false
    end
 
    local userSpiderTFN = self.usrSpiderTFN
@@ -423,9 +491,21 @@ function M.build(self, fast)
 
    local short     = mt:getShortTime()
    if (not buildSpiderT) then
-      ancient = _G.ancient or ancient
       mt:setRebuildTime(ancient, short)
    else
+      local tracing  = cosmic:value("LMOD_TRACING")
+      if (tracing == "yes") then
+         local shell      = _G.Shell
+         local stackDepth = FrameStk:singleton():stackDepth()
+         local indent     = ("  "):rep(stackDepth+1)
+         local b          = {}
+         b[#b + 1]        = indent
+         b[#b + 1]        = "Building Spider cache for the following dir(s): "
+         b[#b + 1]        = concatTbl(mpA,", ")
+         b[#b + 1]        = "\n"
+         shell:echo(concatTbl(b,""))
+      end
+
       local prtRbMsg = ((not quiet())                        and
                         (not masterTbl.initial)              and
                         ((not short) or (short > shortTime)) and
@@ -435,18 +515,18 @@ function M.build(self, fast)
       dbg.print{"quiet:    ", quiet(),", initial:   ", masterTbl.initial,"\n"}
       dbg.print{"prtRbMsg: ",prtRbMsg,", quiet:     ",self.quiet,"\n"}
 
-      local cTimer = CTimer:singleton("Rebuilding cache, please wait ...",
-                                      Threshold, prtRbMsg, masterTbl.timeout)
-
-      local mcp_old  = mcp
+      local threshold = cosmic:value("LMOD_THRESHOLD")
+      local cTimer    = CTimer:singleton("Rebuilding cache, please wait ...",
+                                         threshold, prtRbMsg, masterTbl.timeout)
+      local mcp_old   = mcp
       dbg.print{"Setting mcp to ", mcp:name(),"\n"}
       mcp                 = MasterControl.build("spider")
 
       local t1            = epoch()
-      local st, msg       = pcall(Spider.findAllModules, spider, dirA, userSpiderT)
-      if (not st) then
+      local ok, msg       = pcall(Spider.findAllModules, spider, mpA, userSpiderT)
+      if (not ok) then
          if (msg) then io.stderr:write("Msg: ",msg,'\n') end
-         LmodSystemError("Spider searched timed out\n")
+         LmodSystemError{msg="e_Spdr_Timeout"}
       end
       local t = masterTbl.mpathMapT
       if (next(t) ~= nil) then
@@ -467,9 +547,24 @@ function M.build(self, fast)
       dbg.print{"self.dontWrite: ", self.dontWrite, ", r.dontWriteCache: ",
                 r.dontWriteCache, "\n"}
 
-      local dontWrite = self.dontWrite or r.dontWriteCache or LMOD_IGNORE_CACHE
+      local dontWrite = self.dontWrite or r.dontWriteCache or cosmic:value("LMOD_IGNORE_CACHE")
+
+      if (tracing == "yes") then
+         local shell      = _G.Shell
+         local stackDepth = FrameStk:singleton():stackDepth()
+         local indent     = ("  "):rep(stackDepth+1)
+         local b          = {}
+         b[#b + 1]        = indent
+         b[#b + 1]        = "completed building cache. Saving cache: "
+         b[#b + 1]        = tostring(not(t2 - t1 < shortTime or dontWrite))
+         b[#b + 1]        = "\n"
+         shell:echo(concatTbl(b,""))
+      end
+
+
 
       local doneMsg
+      mrc = MRC:singleton()
 
       if (t2 - t1 < shortTime or dontWrite) then
          ancient = shortLifeCache
@@ -492,21 +587,26 @@ function M.build(self, fast)
          dbg.print{"mt: ", tostring(mt), "\n", level=2}
          doneMsg = " (not written to file) done"
       else
-         local mrc = MRC:singleton()
          mkdir_recursive(self.usrCacheDir)
-         local s0 = "-- Date: " .. os.date("%c",os.time()) .. "\n"
-         local s1 = "ancient = " .. tostring(math.floor(ancient)) .."\n"
-         local s2 = mrc:export()
-         local s3 = serializeTbl{name="spiderT",      value=userSpiderT, indent=true}
-         local s4 = serializeTbl{name="mpathMapT",    value=mpathMapT,   indent=true}
-         os.rename(userSpiderTFN, userSpiderTFN .. "~")
-         local f  = io.open(userSpiderTFN,"w")
+         local userSpiderTFN_new = userSpiderTFN .. "_" .. uuid()
+         local f                 = io.open(userSpiderTFN_new,"w")
          if (f) then
+            os.rename(userSpiderTFN, userSpiderTFN .. "~")
+            local s0 = "-- Date: " .. os.date("%c",os.time()) .. "\n"
+            local s1 = "ancient = " .. tostring(math.floor(ancient)) .."\n"
+            local s2 = mrc:export()
+            local s3 = serializeTbl{name="spiderT",      value=userSpiderT, indent=true}
+            local s4 = serializeTbl{name="mpathMapT",    value=mpathMapT,   indent=true}
             f:write(s0,s1,s2,s3,s4)
             f:close()
+            ok, msg = os.rename(userSpiderTFN_new, userSpiderTFN)
+            if (not ok) then
+               LmodError{msg="e_Unable_2_rename",from=userSpiderTFN_new,to=userSpiderTFN, errMsg=msg}
+            end
+            posix.unlink(userSpiderTFN .. "~")
+            dbg.print{"Wrote: ",userSpiderTFN,"\n"}
          end
-         posix.unlink(userSpiderTFN .. "~")
-         dbg.print{"Wrote: ",userSpiderTFN,"\n"}
+
          if (LUAC_PATH ~= "") then
             if (LUAC_PATH:sub(1,1) == "@") then
                LUAC_PATH="luac"
@@ -550,7 +650,9 @@ function M.build(self, fast)
 
    -- With a valid spiderT build dbT if necessary:
    if (next(dbT) == nil or buildSpiderT) then
-      spider:buildDbT(mpathMapT, spiderT, dbT)
+      local mpathA = mt:modulePathA()
+      spider:buildDbT(mpathA, mpathMapT, spiderT, dbT)
+      spider:buildProvideByT(dbT, providedByT)
    end
 
    -- remove user cache file if old
@@ -565,8 +667,15 @@ function M.build(self, fast)
    local T2 = epoch()
    timer:deltaT("Cache:build", T2 - T1)
 
+   if (not self.noMRC) then
+      mrc:update()
+   end
    dbg.fini("Cache:build")
-   return spiderT, dbT, mpathMapT
+   return spiderT, dbT, mpathMapT, providedByT
 end
 
+function M.__clear()
+   dbg.print{"Clearing s_cache\n"}
+   s_cache = false
+end
 return M

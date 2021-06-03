@@ -2,7 +2,7 @@
 step 1
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing --version
 ===========================
-Modules based on Lua: Version 0.9.2  2016-10-25 13:59 -05:00
+Modules based on Lua: Version 8.4.27  2021-03-16 15:47 -05:00
     by Robert McLay mclay@tacc.utexas.edu
 ===========================
 step 2
@@ -32,7 +32,7 @@ ProjectDIR/rt/avail/mf/Core
    D:  Default Module
    L:  Module is loaded
    m:  built for host and native MIC
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 4
@@ -54,7 +54,7 @@ ProjectDIR/rt/avail/mf/Core
    D:  Default Module
    L:  Module is loaded
    m:  built for host and native MIC
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 5
@@ -80,30 +80,31 @@ ProjectDIR/rt/avail/mf/Core
   Where:
    D:  Default Module
    m:  built for host and native MIC
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 7
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing --show_hidden avail
 ===========================
 ProjectDIR/rt/avail/mf/Core
-   .base/bar/1.4-dbg        gcc/4.2.3            junk/d/3.0
-   .base/bar/1.4     (D)    git/1.6.3.1          local/local
-   .base/baz/1.4-dbg        git/1.7.4            local/1.1
-   .base/baz/1.4     (D)    git/1.7.4.1          local/1.2
+   .base/bar/1.4-dbg (H)    gcc/4.2.3            junk/d/3.0
+   .base/bar/1.4     (H)    git/1.6.3.1          local/local
+   .base/baz/1.4-dbg (H)    git/1.7.4            local/1.1
+   .base/baz/1.4     (H)    git/1.7.4.1          local/1.2
    PrgEnv                   git/1.7.4.2          local/1.3    (D)
    admin/admin-1.0          git/1.7.4.3   (D)    local/1.4
    alex/1.0                 gotoblas/1.20        multi/multi
    bar/1.4-dbg              gotoblas/1.26 (D)    noweb/2.10c
    bar/1.4           (D)    gotoblas/1.30        parmetis/3.1 (m)
-   baz/1.4-dbg              hidden/.1.0          ucc/12.1.5
+   baz/1.4-dbg              hidden/.1.0   (H)    ucc/12.1.5
    baz/1.4           (D)    intel/intel          ucc/13.1.2   (D)
    foo/1.4-dbg              junk/a/c/1.0         ucc/14.0.2
    foo/1.4           (D)    junk/b/c/2.0         unix/unix
   Where:
    D:  Default Module
+   H:  Hidden Module
    m:  built for host and native MIC
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 8
@@ -287,7 +288,7 @@ ProjectDIR/rt/avail/mf/Core
    local/local    local/1.1    local/1.2    local/1.3 (D)    local/1.4
   Where:
    D:  Default Module
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 16
@@ -311,7 +312,7 @@ ProjectDIR/rt/avail/mf/Core
   Where:
    D:  Default Module
    m:  built for host and native MIC
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 17
@@ -330,7 +331,7 @@ ProjectDIR/rt/avail/mf/Core3
    TACC    intel/14.0.0    intel/14.0.3    intel/15.0.1 (D)    intel/15.0.2
   Where:
    D:  Default Module
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 20
@@ -362,7 +363,7 @@ ProjectDIR/rt/avail/mf/Core3
   Where:
    D:  Default Module
    L:  Module is loaded
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 25
@@ -382,7 +383,7 @@ ProjectDIR/rt/avail/mf/Core3
   Where:
    D:  Default Module
    L:  Module is loaded
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 27
@@ -404,12 +405,48 @@ ProjectDIR/rt/avail/mf/Core3
   Where:
    D:  Default Module
    L:  Module is loaded
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 29
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing avail FooBar
 ===========================
-No modules found!
-Use "module spider" to find all possible modules.
+No module(s) or extension(s) found!
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
+===========================
+step 30
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing purge
+===========================
+===========================
+step 31
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing use ProjectDIR/rt/avail/mf/Core7
+===========================
+===========================
+step 32
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing avail
+===========================
+ProjectDIR/rt/avail/mf/Core7
+   A/1.2    B/1.0    C/3.2
+Use "module spider" to find all possible modules and extensions.
+Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
+===========================
+step 33
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing load A
+===========================
+Lmod has detected the following error: ProjectDIR/rt/avail/mf/Core7/A/1.2: (A/1.2): This function is NOT supported in TCL modulefiles, Use a Lua modulefile with isAvail() or rework your logic to use module try-add ...
+While processing the following module(s):
+    Module fullname  Module Filename
+    A/1.2            ProjectDIR/rt/avail/mf/Core7/A/1.2
+===========================
+step 34
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing load B
+===========================
+Found C
+D Not found
+===========================
+step 35
+lua ProjectDIR/src/lmod.in.lua bash --regression_testing list
+===========================
+Currently Loaded Modules:
+  1) B/1.0

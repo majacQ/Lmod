@@ -1,4 +1,6 @@
 _G._DEBUG=false
+local posix         = require("posix")
+
 require("strict")
 require("myGlobals")
 
@@ -10,10 +12,10 @@ _G.MasterControl    = require("MasterControl")
 local FrameStk      = require("FrameStk")
 local Master        = require("Master")
 local MName         = require("MName")
-local ModuleA       = require("ModuleA") 
+local ModuleA       = require("ModuleA")
+local cosmic        = require("Cosmic"):singleton()
 local dbg           = require("Dbg")
 local getenv        = os.getenv
-local posix         = require("posix")
 local testDir       = "spec/MasterControl"
 
 describe("Testing MasterControl Class #MasterControl.",
@@ -63,8 +65,9 @@ describe("Testing MasterControl Class #MasterControl.",
                   local projDir = os.getenv("PROJDIR")
                   local mpath   = pathJoin(projDir,testDir,"mf")
                   posix.setenv("MODULEPATH", mpath, true)
-                  
-                  _G.LMOD_MAXDEPTH = nil
+
+                  cosmic:assign("LMOD_MAXDEPTH", false)
+                  FrameStk:__clear()
                   ModuleA:__clear()
                   local frameStk = FrameStk:singleton()
                   local mpathA   = frameStk:mt():modulePathA()

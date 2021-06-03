@@ -8,7 +8,7 @@
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -61,7 +61,7 @@ end
 
 function Python.expandVar(self, k, v, vType)
    local lineA = {}
-   v                 = tostring(v):multiEscaped()
+   v                 = tostring(v):doubleQuoteString()
    lineA[#lineA + 1] = 'os.environ['
    lineA[#lineA + 1] = k:doubleQuoteString()
    lineA[#lineA + 1] = '] = '
@@ -74,13 +74,31 @@ end
 
 function Python.unset(self, k, vType)
    local lineA = {}
-   lineA[#lineA + 1] = "os.environ['"
-   lineA[#lineA + 1] = k
-   lineA[#lineA + 1] = "'] = ''\n"
-   lineA[#lineA + 1] = "del os.environ['"
-   lineA[#lineA + 1] = k
-   lineA[#lineA + 1] = "']\n"
+   lineA[#lineA + 1] = "os.environ["
+   lineA[#lineA + 1] = k:doubleQuoteString()
+   lineA[#lineA + 1] = "] = ''\n"
+   lineA[#lineA + 1] = "del os.environ["
+   lineA[#lineA + 1] = k:doubleQuoteString()
+   lineA[#lineA + 1] = "]\n"
    local line        = concatTbl(lineA,"")
+   stdout:write(line)
+   dbg.print{   line}
+end
+
+function Python.initialize(self)
+   local line = "import os\n"
+   stdout:write(line)
+   dbg.print{   line}
+end
+
+function Python.report_failure(self)
+   local line = "_mlstatus = False\n"
+   stdout:write(line)
+   dbg.print{   line}
+end
+
+function Python.report_success(self)
+   local line = "_mlstatus = True\n"
    stdout:write(line)
    dbg.print{   line}
 end

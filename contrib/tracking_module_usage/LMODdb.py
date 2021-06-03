@@ -4,7 +4,12 @@ import os, sys, re, base64, time, json
 dirNm, execName = os.path.split(os.path.realpath(sys.argv[0]))
 sys.path.append(os.path.realpath(dirNm))
 
-import MySQLdb, ConfigParser, getpass
+try:
+  import configparser
+except:
+  import ConfigParser as configparser
+
+import MySQLdb, getpass
 import warnings, inspect
 from BeautifulTbl import BeautifulTbl
 warnings.filterwarnings("ignore", "Unknown table.*")
@@ -62,13 +67,13 @@ class LMODdb(object):
     """ Read database access info from config file. (private)"""
     confFn = self.__confFn
     try:
-      config=ConfigParser.ConfigParser()
+      config=configparser.ConfigParser()
       config.read(confFn)
       self.__host    = config.get("MYSQL","HOST")
       self.__user    = config.get("MYSQL","USER")
-      self.__passwd  = base64.b64decode(config.get("MYSQL","PASSWD"))
+      self.__passwd  = base64.b64decode(config.get("MYSQL","PASSWD").encode()).decode()
       self.__db      = config.get("MYSQL","DB")
-    except ConfigParser.NoOptionError, err:
+    except ConfigParser.NoOptionError as err:
       sys.stderr.write("\nCannot parse the config file\n")
       sys.stderr.write("Switch to user input mode...\n\n")
       self.__readFromUser()
@@ -85,7 +90,7 @@ class LMODdb(object):
       self.__readFromUser()
 
     n = 200
-    for i in xrange(0,n+1):
+    for i in range(0,n+1):
       try:
         self.__conn = MySQLdb.connect (self.__host,self.__user,self.__passwd)
         if (databaseName):
@@ -97,7 +102,7 @@ class LMODdb(object):
         break
 
 
-      except MySQLdb.Error, e:
+      except MySQLdb.Error as e:
         if (i < n):
           sleep(i*0.1)
           print ("failed to connect trying again: ",i)
@@ -113,7 +118,7 @@ class LMODdb(object):
     return self.__db
 
 
-  def dump_db(self):
+  def dump_db(self, startDate, endDate):
 
     userA   = None
     moduleA = None
@@ -135,7 +140,7 @@ class LMODdb(object):
       query = "SELECT user_id, user from userT"
       cursor.execute(query)
       numRows = cursor.rowcount
-      for i in xrange(numRows):
+      for i in range(numRows):
         row            = cursor.fetchone()
         user_id        = row[0]
         user           = row[1]
@@ -152,7 +157,7 @@ class LMODdb(object):
       query = "SELECT mod_id, path, module, syshost from moduleT"
       cursor.execute(query)
       numRows = cursor.rowcount
-      for i in xrange(numRows):
+      for i in range(numRows):
         row             = cursor.fetchone()
         mod_id          = row[0]
         path            = row[1]
@@ -162,10 +167,10 @@ class LMODdb(object):
 
 
       # extract join_user_module table:
-      query = "SELECT user_id, mod_id, UNIX_TIMESTAMP(date) from join_user_module"
-      cursor.execute(query)
+      query = "SELECT user_id, mod_id, UNIX_TIMESTAMP(date) from join_user_module where date >= %s AND date < %s"
+      cursor.execute(query, (startDate, endDate))
       numRows = cursor.rowcount
-      for i in xrange(numRows):
+      for i in range(numRows):
         row     = cursor.fetchone()
         user    = userA[int(row[0])]
         modT    = moduleA[int(row[1])]
@@ -203,7 +208,7 @@ class LMODdb(object):
         cursor.execute(query)
 
         numRows = cursor.rowcount
-        for i in xrange(numRows):
+        for i in range(numRows):
           row = cursor.fetchone()
           user_id = int(row[0])
           user    = row[1]
@@ -241,7 +246,7 @@ class LMODdb(object):
         cursor.execute(query)
         numRows = cursor.rowcount
 
-        for i in xrange(numRows):
+        for i in range(numRows):
           row     = cursor.fetchone()
           mod_id  = row[0]
           path    = row[1]
@@ -293,7 +298,7 @@ class LMODdb(object):
       print("data_to_db(): ",e)
       sys.exit(1)
 
-  def counts(self, sqlPattern, syshost, startDate, endDate):
+  def counts(self, sqlPattern, syshost, startDate, endDate, allmodulesFn):
     query = ""
     try:
       conn   = self.connect()
@@ -311,18 +316,79 @@ class LMODdb(object):
       if (sqlPattern == "") :
         sqlPattern == "%"
 
-      query = "SELECT t1.path, t1.syshost, count(distinct(t2.user_id)) as c2 from moduleT as t1, "  +\
+      query = "SELECT t1.path, t1.syshost, count(distinct(t2.user_id)) as c3 from moduleT as t1, "  +\
               "join_user_module as t2 where t1.path like %s and t1.mod_id = t2.mod_id " +\
-              "and t1.syshost like %s " + dateTest + " group by t2.mod_id order by c2 desc"
+              "and t1.syshost like %s " + dateTest + " group by t2.mod_id order by c3 desc"
+
+      cursor.execute(query,( sqlPattern, syshost))
+      numRows = cursor.rowcount
+
+      resultT = {}
+      sT = {}
+
+      if (allmodulesFn):
+        with open(allmodulesFn) as fp:
+          lineA = fp.readlines()
+          for moduleNm in lineA:
+            moduleNm          = moduleNm.strip()
+            resultT[moduleNm] = { 'syshost' : syshost, 'nUsers' : 0 }
+            sT[moduleNm]      = 0
+      
+
+      for i in range(numRows):
+        row = cursor.fetchone()
+        moduleNm = row[0]
+        resultT[moduleNm] = { 'syshost' : row[1], 'nUsers' : row[2] }
+        sT[moduleNm]      = row[2]
+
+      resultA = []
+
+      resultA.append(["Module path", "Syshost", "Distinct Users" ])
+      resultA.append(["-----------", "-------", "--------------"])
+      sT_view = [ (v,k) for k,v in sT.items() ]
+      sT_view.sort(reverse=True)
+      for v,k in sT_view:
+        resultA.append([k, resultT[k]['syshost'], resultT[k]['nUsers'] ])
+
+      conn.close()
+
+      return resultA
+
+
+    except Exception as e:
+      print("counts(): ",e)
+      sys.exit(1)
+
+  def numtimes(self, sqlPattern, syshost, startDate, endDate):
+    query = ""
+    try:
+      conn   = self.connect()
+      cursor = conn.cursor()
+      query  = "USE "+self.db()
+      conn.query(query)
+
+      dateTest = ""
+      if (startDate != "unknown"):
+        dateTest = " and t2.date >= '" + startDate + "'"
+
+      if (endDate != "unknown"):
+        dateTest = dateTest + " and t2.date < '" + endDate + "'"
+
+      if (sqlPattern == "") :
+        sqlPattern == "%"
+
+      query = "SELECT t1.path, t1.syshost, count(distinct(t2.mod_id)) as c3 from moduleT as t1, "  +\
+              "join_user_module as t2 where t1.path like %s and t1.syshost like %s "      +\
+               dateTest + " group by t1.path order by c3 desc"
 
       cursor.execute(query,( sqlPattern, syshost))
       numRows = cursor.rowcount
 
       resultA = []
 
-      resultA.append(["Module path", "Syshost", "Distinct Users" ])
-      resultA.append(["-----------", "-------", "--------------"])
-      for i in xrange(numRows):
+      resultA.append(["Module path", "Syshost", "Number of Times" ])
+      resultA.append(["-----------", "-------", "---------------"])
+      for i in range(numRows):
         row = cursor.fetchone()
         resultA.append([row[0],row[1],row[2]])
 
@@ -332,7 +398,7 @@ class LMODdb(object):
 
 
     except Exception as e:
-      print("counts(): ",e)
+      print("numtimes(): ",e)
       sys.exit(1)
 
   def usernames(self, sqlPattern, syshost, startDate, endDate):
@@ -366,7 +432,7 @@ class LMODdb(object):
       resultA.append(["-----------", "-------", "---------"])
 
 
-      for i in xrange(numRows):
+      for i in range(numRows):
         row = cursor.fetchone()
         resultA.append([row[0],row[1],row[2]])
 
@@ -408,7 +474,7 @@ class LMODdb(object):
       resultA.append(["-----------", "-------", "---------"])
 
 
-      for i in xrange(numRows):
+      for i in range(numRows):
         row = cursor.fetchone()
         resultA.append([row[0],row[1],row[2]])
 

@@ -9,7 +9,7 @@ require("strict")
 
 -----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -55,15 +55,9 @@ local function askSystem(width)
       return tonumber(columns)
    end
 
-   -- Try env var COLUMNS
-   columns = getenv("COLUMNS")
-   if (columns) then
-      return tonumber(columns)
-   end
-
    -- Try tput cols
    if (getenv("TERM")) then
-      local result  = capture("tput cols")
+      local result  = capture("tput cols 2> /dev/null")
       i, j, columns = result:find("^(%d+)")
       if (i) then
          return tonumber(columns)

@@ -17,7 +17,7 @@ require("strict")
 --
 --  ----------------------------------------------------------------------
 --
---  Copyright (C) 2008-2016 Robert McLay
+--  Copyright (C) 2008-2018 Robert McLay
 --
 --  Permission is hereby granted, free of charge, to any person obtaining
 --  a copy of this software and associated documentation files (the
@@ -47,9 +47,10 @@ require("fileOps")
 require("sandbox")
 require("string_utils")
 require("utils")
-local dbg          = require("Dbg"):dbg()
-local concatTbl    = table.concat
-local getenv       = os.getenv
+local dbg             = require("Dbg"):dbg()
+local concatTbl       = table.concat
+local getenv          = os.getenv
+
 ------------------------------------------------------------------------
 -- loadModuleFile(t): read a modulefile in via sandbox_run
 -- @param t The input table naming the file to be loaded plus other
@@ -62,7 +63,7 @@ function loadModuleFile(t)
    local func
    local msg
    local whole
-   local userName 
+   local userName
 
    -- If the user is requesting an unload, don't complain if the file
    -- has disappeared.
@@ -114,15 +115,16 @@ function loadModuleFile(t)
          A[#A + 1]    = "-P"
          A[#A + 1]    = "\"" .. ld_preload .. "\""
       end
-      
+
       if (t.help) then
          A[#A + 1] = "-h"
       end
-      whole, status = runTCLprog("tcl2lua.tcl",concatTbl(A," "), t.file)
+      A[#A + 1] = path_regularize(t.file)
+      whole, status = runTCLprog(pathJoin(cmdDir(),"tcl2lua.tcl"),concatTbl(A," "))
       if (not status) then
          local n = userName or ""
          msg     = "Non-zero status returned"
-         LmodError("Unable to load module: ",n,"\n    ",t.file,": ", msg,"\n")
+         LmodError{msg="e_Unable_2_Load", name = n, fn = t.file, message = msg}
       end
    end
 
@@ -131,13 +133,13 @@ function loadModuleFile(t)
       status, msg = sandbox_run(whole)
    else
       status = nil
-      msg    = "Empty or non-existant file"
+      msg    = "Empty or non-existent file"
    end
 
    -- report any errors
    if (not status and t.reportErr) then
       local n = userName or ""
-      LmodError("Unable to load module: ",n,"\n    ",t.file,": ", msg,"\n")
+      LmodError{msg="e_Unable_2_Load", name = n, fn = t.file, message = msg}
    end
 
    dbg.fini("loadModuleFile")

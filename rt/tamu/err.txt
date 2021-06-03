@@ -2,21 +2,21 @@
 step 1
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing --version
 ===========================
-Modules based on Lua: Version 0.9.2  2016-10-25 13:59 -05:00
+Modules based on Lua: Version 8.4.19  2020-12-13 13:58 -06:00
     by Robert McLay mclay@tacc.utexas.edu
 ===========================
 step 2
 lua ProjectDIR/src/lmod.in.lua bash --regression_testing spider
 ===========================
-The following is a list of the modules currently available:
+The following is a list of the modules and extensions currently available:
   uapp: uapp/3.0, uapp/7.0.8.0, uapp/7.0.8.1, uapp/7.1.8.0, uapp/7.1.8.1
   ucc: ucc/1.0, ucc/9.0
   umpi: umpi/2.0, umpi/8.0, umpi/8.1
-To learn more about a package enter:
+To learn more about a package execute:
    $ module spider Foo
-where "Foo" is the name of a module
+where "Foo" is the name of a module.
 To find detailed information about a particular package you
-must enter the version if there is more than one version:
+must specify the version if there is more than one version:
    $ module spider Foo/11.1
 ===========================
 step 3
@@ -34,7 +34,7 @@ ProjectDIR/rt/tamu/mf/Core
   Where:
    D:  Default Module
    L:  Module is loaded
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 5
@@ -54,7 +54,7 @@ ProjectDIR/rt/tamu/mf/Core
   Where:
    D:  Default Module
    L:  Module is loaded
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 7
@@ -74,7 +74,7 @@ ProjectDIR/rt/tamu/mf/Core
   Where:
    D:  Default Module
    L:  Module is loaded
-Use "module spider" to find all possible modules.
+Use "module spider" to find all possible modules and extensions.
 Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
 ===========================
 step 9
@@ -87,7 +87,8 @@ lua ProjectDIR/src/lmod.in.lua bash --regression_testing spider uapp
         uapp/7.0.8.1
         uapp/7.1.8.0
         uapp/7.1.8.1
-  For detailed information about a specific "uapp" module (including how to load the modules) use the module's full name.
+  For detailed information about a specific "uapp" package (including how to load the modules) use the module's full name.
+  Note that names that have a trailing (E) are extensions provided by other modules.
   For example:
      $ module spider uapp/7.1.8.1
 ===========================
