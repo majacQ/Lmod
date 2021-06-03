@@ -133,6 +133,14 @@ cosmic:init{name = "LMOD_CASE_INDEPENDENT_SORTING",
             yn   = "no"}
 
 ------------------------------------------------------------------------
+-- LMOD_KSH_SUPPORT :  Set FPATH to support KSH users and scripts
+------------------------------------------------------------------------
+
+cosmic:init{name = "LMOD_KSH_SUPPORT",
+            sedV = "@support_ksh@",
+            yn   = "no"}
+
+------------------------------------------------------------------------
 -- LMOD_REDIRECT:  Send messages to stdout instead of stderr
 ------------------------------------------------------------------------
 cosmic:init{name = "LMOD_REDIRECT",
@@ -205,6 +213,14 @@ cosmic:init{name = "LMOD_PIN_VERSIONS",
 
 cosmic:init{name = "LMOD_AUTO_SWAP",
             sedV = "@auto_swap@",
+            yn   = "yes"}
+
+------------------------------------------------------------------------
+-- LMOD_AVAIL_EXTENSIONS:  Display extensions with "module avail"
+------------------------------------------------------------------------
+
+cosmic:init{name = "LMOD_AVAIL_EXTENSIONS",
+            sedV = "@avail_extensions@",
             yn   = "yes"}
 
 ------------------------------------------------------------------------
@@ -384,7 +400,8 @@ stackTraceBackA = {}
 
 ------------------------------------------------------------------------
 -- ShowResultsA: A place where the generated module file is written to
---               when forming a show and computing a sha1sum
+--               when forming a show and computing a sha1sum and
+--               collecting syntax errors
 ------------------------------------------------------------------------
 ShowResultsA = {}
 
@@ -540,6 +557,13 @@ cosmic:init{name = "LMOD_USE_DOT_FILES",
 local use_dot_files = cosmic:value("LMOD_USE_DOT_FILES")
 
 ------------------------------------------------------------------------
+-- LMOD_ALLOW_ROOT_USE
+------------------------------------------------------------------------
+cosmic:init{name = "LMOD_ALLOW_ROOT_USE",
+            sedV = "@lmod_allow_root_use@",
+            yn   = "yes"}
+
+------------------------------------------------------------------------
 -- LMOD_HAVE_LUA_TERM
 ------------------------------------------------------------------------
 cosmic:init{name = "LMOD_HAVE_LUA_TERM",
@@ -556,9 +580,22 @@ cosmic:init{name    = "MODULEPATH_ROOT",
 ------------------------------------------------------------------------
 -- LMOD_HASHSUM_PATH
 ------------------------------------------------------------------------
+local HashSum      = "@hashsum@"
+local found        = false
+if (HashSum:sub(1,1) == "@") then
+   local a = { "sha1sum", "shasum", "md5sum", "md5" }
+   for i = 1,#a do
+      HashSum, found = findInPath(a[i])
+      if (found) then break end
+   end
+   if (not found) then
+      HashSum = nil
+   end
+end
+
 cosmic:init{name    = "LMOD_HASHSUM_PATH",
             sedV    = "@hashsum@",
-            default = "/usr/bin/sha1sum"}
+            default = HashSum}
 
 ------------------------------------------------------------------------
 -- PATH_TO_LUA

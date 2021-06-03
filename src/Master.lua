@@ -378,7 +378,7 @@ function M.load(self, mA)
             loadModuleFile{file = fn, shell = shellNm, mList = mList, reportErr = true}
             mt = frameStk:mt()
             mt:setStatus(sn, "active")
-            hook.apply("load",{fn = mname:fn(), modFullName = mname:fullName()})
+            hook.apply("load",{fn = mname:fn(), modFullName = mname:fullName(), mname = mname})
             frameStk:pop()
             dbg.print{"Marking ",fullName," as active and loaded\n"}
             registerLoaded(fullName, fn)
@@ -556,7 +556,7 @@ end
 -- same as [[find_module_file()]] reports.  If not
 -- then it is unloaded and an attempt is made to reload
 -- it.  Each inactive module is re-loaded if possible.
-function M.reloadAll(self)
+function M.reloadAll(self, force_update)
    ReloadAllCntr = ReloadAllCntr + 1
    dbg.start{"Master:reloadAll(count: ",ReloadAllCntr ,")"}
    local frameStk = FrameStk:singleton()
@@ -608,8 +608,10 @@ function M.reloadAll(self)
             local fullName = mname:fullName()
             local userName = v.name
             local mt_uName = mt:userName(sn)
+            dbg.print{"fn_new: ",fn_new,"\n"}
+            dbg.print{"fn_old: ",fn_old,"\n"}
             -- This is #issue 394 fix: only reload when the userName has remained the same.
-            if (fn_new ~= fn_old) then
+            if (fn_new ~= fn_old or force_update) then
                dbg.print{"Master:reloadAll fn_new: \"",fn_new,"\"",
                          " mt:fileName(sn): \"",fn_old,"\"",
                          " mt:userName(sn): \"",mt_uName,"\"",
@@ -944,20 +946,24 @@ function M.avail(self, argA)
       return a
    end
 
-   local use_cache   = (not masterTbl.terse) or (cosmic:value("LMOD_CACHED_LOADS") ~= "no")
-   local moduleA     = ModuleA:singleton{spider_cache=use_cache}
-   local isNVV       = moduleA:isNVV()
-   local mrc         = MRC:singleton()
-   local availA      = moduleA:build_availA()
-   local twidth      = TermWidth()
-   local cwidth      = masterTbl.rt and LMOD_COLUMN_TABLE_WIDTH or twidth
-   local defaultT    = moduleA:defaultT()
-   local searchA     = argA
-   local defaultOnly = masterTbl.defaultOnly
-   local showSN      = not defaultOnly
-   local alias2modT  = mrc:getAlias2ModT()
+   local extensions    = cosmic:value("LMOD_AVAIL_EXTENSIONS") == "yes"
+   local use_cache     = (not masterTbl.terse) or (cosmic:value("LMOD_CACHED_LOADS") ~= "no")
+   local moduleA       = ModuleA:singleton{spider_cache=use_cache}
+   local isNVV         = moduleA:isNVV()
+   local mrc           = MRC:singleton()
+   local availA        = moduleA:build_availA()
+   local twidth        = TermWidth()
+   local cwidth        = masterTbl.rt and LMOD_COLUMN_TABLE_WIDTH or twidth
+   local defaultT      = moduleA:defaultT()
+   local searchA       = argA
+   local defaultOnly   = masterTbl.defaultOnly
+   local showSN        = not defaultOnly
+   local alias2modT    = mrc:getAlias2ModT(mpathA)
 
    dbg.print{"defaultOnly: ",defaultOnly,", showSN: ",showSN,"\n"}
+
+   dbg.printT("defaultT:",defaultT)
+
 
    if (not masterTbl.regexp and argA and next(argA) ~= nil) then
       if (showSN) then
@@ -976,7 +982,7 @@ function M.avail(self, argA)
       -- Terse output
       dbg.printT("availA",availA)
       for k, v in pairsByKeys(alias2modT) do
-         local fullName = mrc:resolve(v)
+         local fullName = mrc:resolve(mpathA, v)
          a[#a+1] = k.."(@" .. fullName ..")\n"
       end
 
@@ -993,10 +999,10 @@ function M.avail(self, argA)
                   prtSnT[sn] = true
                   aa[#aa+1]  = sn .. "/\n"
                end
-               local aliasA = mrc:getFull2AliasesT(fullName)
+               local aliasA = mrc:getFull2AliasesT(mpathA, fullName)
                if (aliasA) then
                   for i = 1,#aliasA do
-                     local fullName = mrc:resolve(aliasA[i])
+                     local fullName = mrc:resolve(mpathA, aliasA[i])
                      aa[#aa+1]  = aliasA[i] .. "(@".. fullName ..")\n"
                   end
                end
@@ -1021,12 +1027,19 @@ function M.avail(self, argA)
    local legendT  = {}
    local Default  = 'D'
    local numFound = 0
+   local na       = "N/A"
+   local pna      = "("..na..")"
 
    if (next(alias2modT) ~= nil) then
-      local b = {}
+      local b  = {}
+      local bb = {}
       for k, v in pairsByKeys(alias2modT) do
-         local fullName = mrc:resolve(v)
-         b[#b+1] = { "   " .. k, "->", fullName}
+         local mname    = MName:new("load",k)
+         local fullName = mname:fullName() or pna
+         if (fullName == pna) then
+            legendT[na] = i18n("m_Global_Alias_na")
+         end
+         b[#b+1]   = { "   " .. k, "->", fullName}
       end
       local ct = ColumnTable:new{tbl=b, gap=1, len=length, width = cwidth}
       a[#a+1]  = "\n"
@@ -1064,7 +1077,7 @@ function M.avail(self, argA)
                end
 
                local propStr = c[3] or ""
-               local verMapStr = mrc:getMod2VersionT(fullName)
+               local verMapStr = mrc:getMod2VersionT(mpathA, fullName)
                if (verMapStr) then
                   legendT["Aliases"] = i18n("aliasMsg",{})
                   if (dflt == Default) then
@@ -1106,7 +1119,7 @@ function M.avail(self, argA)
    local spiderT,dbT,
          mpathMapT, providedByT = cache:build()
    
-   if (providedByT and next(providedByT) ~= nil) then
+   if (extensions and providedByT and next(providedByT) ~= nil) then
       local b = {}
       for k,v in pairsByKeys(providedByT) do
          local found = false
@@ -1125,7 +1138,7 @@ function M.avail(self, argA)
             found = true
          end
          if (found) then
-            b[#b + 1] = {"    " .. colorize("green",k),"(E)"}
+            b[#b + 1] = {"    " .. colorize("blue",k),"(E)"}
          end
       end
       if (next(b) ~= nil) then

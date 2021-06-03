@@ -172,6 +172,7 @@ end
 function M.singleton(self, t)
    t = t or {}
    if (t.testing) then
+      dbg.print{"Clearing s_mt\n"}
       s_mt = false
       __removeEnvMT()
    end
@@ -185,6 +186,7 @@ end
 
 function M.__clearMT(self, t)
    if (t.testing == true) then
+      dbg.print{"Clearing s_mt\n"}
       s_mt  = false
    end
 end
@@ -206,6 +208,7 @@ function M.__convertMT(self, v2)
       v.loadOrder = vv.loadOrder
       v.propT     = vv.propT
       v.status    = vv.status
+      v.wV        = vv.wV
       v.userName  = (vv.default == 1) and sn or v.fullName
       mT[sn]      = v
    end
@@ -240,6 +243,7 @@ function M.add(self, mname, status, loadOrder)
       status     = status,
       loadOrder  = loadOrder,
       propT      = {},
+      wV         = mname:wV() or false,
    }
 end
 
@@ -469,27 +473,12 @@ function M.add_property(self, sn, name, value)
       LmodError{msg="e_No_Mod_Entry", routine = "MT:add_property()",name = sn}
    end
    local readLmodRC   = ReadLmodRC:singleton()
-   local propDisplayT = readLmodRC:propT()
-   local propKindT    = propDisplayT[name]
-
-   if (propKindT == nil) then
-      LmodError{msg="e_No_PropT_Entry", routine = "MT:add_property()", location = "entry", name = name}
-   end
-   local validT = propKindT.validT
-   if (validT == nil) then
-      LmodError{msg="e_No_PropT_Entry", routine = "MT:add_property()", location = "validT table", name = name}
-   end
 
    local propT        = entry.propT
    propT[name]        = propT[name] or {}
    local t            = propT[name]
 
-   for v in value:split(":") do
-      if (validT[v] == nil) then
-         LmodError{msg="e_No_ValidT_Entry", routine = "MT:add_property()", name = name, value = value}
-      end
-      t[v] = 1
-   end
+   readLmodRC:validPropValue(name, value, t)
    entry.propT[name]  = t
 
    dbg.fini("MT:add_property")
@@ -607,6 +596,14 @@ function M.fullName(self, sn)
       return nil
    end
    return entry.fullName
+end
+
+function M.wV(self, sn)
+   local entry = self.mT[sn]
+   if (entry == nil) then
+      return nil
+   end
+   return entry.wV
 end
 
 function M.fn(self, sn)
@@ -962,9 +959,9 @@ function M.setHashSum(self)
    end
 
    local path   = "@path_to_lua@:" .. os.getenv("PATH")
-   local luaCmd = findInPath("lua",path)
+   local luaCmd, found = findInPath("lua",path)
 
-   if (luaCmd == nil) then
+   if (not found) then
       LmodError{msg="e_Failed_2_Find", name = "lua"}
    end
 

@@ -104,6 +104,14 @@ function M.whatis(self, value)
 end
 
 --------------------------------------------------------------------------
+-- Print exit command.
+-- @param self A MasterControl object
+-- @param value the whatis string.
+function show_exit(value)
+   ShowCmd("os.exit", value)
+end
+
+--------------------------------------------------------------------------
 -- Print execute command.
 -- @param self A MasterControl object.
 -- @param t Input table describing shell command.
@@ -223,6 +231,14 @@ end
 -- @param mA An array of module names (MName objects)
 function M.load(self, mA)
    A[#A+1] = ShowCmdA("load",mA)
+end
+
+--------------------------------------------------------------------------
+-- Print load_any command.
+-- @param self A MasterControl object
+-- @param mA An array of module names (MName objects)
+function M.load_any(self, mA)
+   A[#A+1] = ShowCmdA("load_any",mA)
 end
 
 --------------------------------------------------------------------------

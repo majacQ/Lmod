@@ -81,19 +81,12 @@ local function new(self)
    setmetatable(o,self)
    self.__index = self
 
+   local HashSum    = cosmic:value("LMOD_HASHSUM_PATH")
    local locSitePkg = locatePkg("SitePackage") or "unknown"
 
    if (locSitePkg ~= "unknown") then
       local std_sha1 = "1fa3d8f24793042217b8474904136fdde72d42dd"
       local std_md5  = "3c785db2ee60bc8878fe1b576c890a0f"
-      local HashSum  = "@path_to_hashsum@"
-      if (HashSum:sub(1,1) == "@") then
-         local a = { "sha1sum", "shasum", "md5sum", "md5" }
-         for i = 1,#a do
-            HashSum = findInPath(a[i])
-            if (HashSum) then break end
-         end
-      end
 
       local std_hashsum = (HashSum:find("md5") ~= nil) and std_md5 or std_sha1
 
@@ -138,7 +131,9 @@ local function new(self)
    local uname             = capture("uname -a")
    local adminFn, readable = findAdminFn()
    local activeTerm        = haveTermSupport() and "true" or colorize("red","false")
+   local ksh_support       = cosmic:value("LMOD_KSH_SUPPORT")
    local extended_default  = cosmic:value("LMOD_EXTENDED_DEFAULT")
+   local avail_extensions  = cosmic:value("LMOD_AVAIL_EXTENSIONS")
    local hiddenItalic      = cosmic:value("LMOD_HIDDEN_ITALIC")
    local lfsV              = cosmic:value("LFS_VERSION")
    local lmod_lang         = cosmic:value("LMOD_LANG")
@@ -179,6 +174,7 @@ local function new(self)
    local lua_path          = cosmic:value("PATH_TO_LUA")
    local tracing           = cosmic:value("LMOD_TRACING")
    local fast_tcl_interp   = cosmic:value("LMOD_FAST_TCL_INTERP")
+   local allow_root_use    = cosmic:value("LMOD_ALLOW_ROOT_USE")
 
    if (not rc:find(":") and not isFile(rc)) then
       rc = rc .. " -> <empty>"
@@ -196,11 +192,13 @@ local function new(self)
    end
 
    local tbl = {}
+   tbl.allowRoot    = { k = "Allow root to use Lmod"            , v = allow_root_use,   }
    tbl.allowTCL     = { k = "Allow TCL modulefiles"             , v = allow_tcl_mfiles, }
    tbl.autoSwap     = { k = "Auto swapping"                     , v = auto_swap,        }
    tbl.case         = { k = "Case Independent Sorting"          , v = case_ind_sorting, }
    tbl.colorize     = { k = "Colorize Lmod"                     , v = lmod_colorize,    }
    tbl.disable1N    = { k = "Disable Same Name AutoSwap"        , v = disable1N,        }
+   tbl.disp_av_ext  = { k = "Display Extension w/ avail"        , v = avail_extensions, }
    tbl.dot_files    = { k = "Using dotfiles"                    , v = using_dotfiles,   }
    tbl.dupPaths     = { k = "Allow duplicate paths"             , v = duplicate_paths,  }
    tbl.extendDflt   = { k = "Allow extended default"            , v = extended_default, }
@@ -208,6 +206,7 @@ local function new(self)
    tbl.expMCmd      = { k = "Export the module command"         , v = export_module,    }
    tbl.fastTCL      = { k = "Use attached TCL over system call" , v = fast_tcl_interp,  }
    tbl.hiddenItalic = { k = "Use italic instead of dim"         , v = hiddenItalic,     }
+   tbl.ksh_support  = { k = "KSH Support"                       , v = ksh_support,      }
    tbl.lang         = { k = "Language used for err/msg/warn"    , v = lmod_lang,        }
    tbl.lang_site    = { k = "Site message file"                 , v = site_msg_file,    }
    tbl.lua_cpath    = { k = "LUA_CPATH"                         , v = "@sys_lua_cpath@",}

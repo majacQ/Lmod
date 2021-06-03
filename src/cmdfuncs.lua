@@ -245,10 +245,10 @@ function Keyword(...)
    local ia                     = 0
    local masterTbl              = masterTbl()
    local terse                  = masterTbl.terse
-   local kywdT                  = spider:searchSpiderDB(pack(...), dbT)
+   local kywdT,kywdExtsT        = spider:searchSpiderDB(pack(...), dbT, providedByT)
 
    if (terse) then
-      shell:echo(Spider:Level0_terse(kywdT))
+      shell:echo(Spider:Level0_terse(kywdT, providedByT))
       dbg.fini("Keyword")
       return
    end
@@ -257,7 +257,7 @@ function Keyword(...)
 
    dbg.printT("kywdT",kywdT)
 
-   spider:Level0Helper(kywdT,providedByT,a)
+   spider:Level0Helper(kywdT,kywdExtsT,a)
 
    shell:echo(concatTbl(a,""))
 
@@ -392,20 +392,9 @@ function List(...)
    dbg.fini("List")
 end
 
-
 ------------------------------------------------------------------------
--- Load modules from users but do not issue warnings if the module is
--- not there.
-function Load_Try(...)
-   dbg.start{"Load_Try(",concatTbl({...},", "),")"}
-   deactivateWarning()
-   Load_Usr(...)
-   activateWarning()
-   dbg.fini("Load_Try")
-end
-
-------------------------------------------------------------------------
--- Load modules from users.  If a module name has
+-- Load modules from users. This routine does the work for both
+-- Load_Usr() and Load_Try(). If a module name has
 -- a minus sign in front of it then unload it.  Do that
 -- before loading any other modules.  Also if the
 -- shortName of a request module is already loaded then
@@ -413,18 +402,24 @@ end
 --
 --      $ module load foo/1.1; module load foo/1.3
 --
--- the second load of "foo" will not load it twice.
+-- foo/1.1 will be loaded.  Then loading foo/1.3 will
+-- cause foo/1.1 to be unloaded and then Lmod will load foo/1.3.
 -- Finally any successful loading of a module is registered
 -- with "MT" so that when a user does the above commands
 -- it won't get the swap message.
-function Load_Usr(...)
+
+local function l_usrLoad(argA, check_must_load)
    local frameStk = FrameStk:singleton()
-   dbg.start{"Load_Usr(",concatTbl({...},", "),")"}
+   dbg.start{"l_usrLoad(argA, check_must_load: ",check_must_load,")"}
    local uA   = {}
    local lA   = {}
-   local argA = pack(...)
    for i = 1, argA.n do
       local v = argA[i]
+      if (v == "-") then
+         LmodMessage{msg="e_Illegal_option",v=v}
+         os.exit(1)
+      end
+
       if (v:sub(1,1) == "-") then
          uA[#uA+1] = MName:new("mt", v:sub(2,-1))
       else
@@ -453,14 +448,34 @@ function Load_Usr(...)
       dbg.print{"Setting mcp to ", mcp:name(),"\n"}
       b             = mcp:load_usr(lA)
 
-      if (haveWarnings()) then
+      if (haveWarnings() and check_must_load) then
          mcp.mustLoad()
       end
       mcp           = mcp_old
    end
 
-   dbg.fini("Load_Usr")
+   dbg.fini("l_usrLoad")
    return b
+end
+
+------------------------------------------------------------------------
+-- Load modules from users but do not issue warnings if the module is
+-- not there but failures during load are reported.
+
+function Load_Try(...)
+   dbg.start{"Load_Try(",concatTbl({...},", "),")"}
+   local check_must_load = false
+   local argA            = pack(...)
+   l_usrLoad(argA, check_must_load)
+   dbg.fini("Load_Try")
+end
+
+function Load_Usr(...)
+   dbg.start{"Load_Usr(",concatTbl({...},", "),")"}
+   local check_must_load = true
+   local argA            = pack(...)
+   l_usrLoad(argA, check_must_load)
+   dbg.fini("Load_Usr")
 end
 
 function Purge_Usr()
@@ -541,7 +556,7 @@ function Reset(msg)
    default = default:gsub(" *, *",":")
    default = default:gsub(" +",":")
 
-   if (msg ~= false) then
+   if (msg ~= false and not quiet()) then
       io.stderr:write(i18n("m_Reset_SysDflt",{}))
    end
 
@@ -767,7 +782,7 @@ end
 
 --------------------------------------------------------------------------
 -- Use the show mode of MasterControl to list the active Lmod
--- commands in a module file.  Note that it is always in Lua
+-- commands in a module file.  Note that the output is always in Lua
 -- even if the modulefile is written in TCL.
 function Show(...)
    local master = Master:singleton()
@@ -786,7 +801,10 @@ function Show(...)
                      a[#a+1] = borderStr
                      return concatTbl(a,"")
                   end
+   local exit = os.exit
+   sandbox_set_os_exit(show_exit)
    master:access(...)
+   os.exit = exit
    dbg.fini("Show")
 end
 
@@ -923,7 +941,8 @@ end
 --  Reload all modules.
 function Update()
    local master = Master:singleton()
-   master:reloadAll()
+   local force_update = true
+   master:reloadAll(force_update)
 end
 
 --------------------------------------------------------------------------

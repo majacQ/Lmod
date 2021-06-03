@@ -53,10 +53,13 @@ require("capture")
 require("modfuncs")
 require("string_utils")
 require("utils")
+require("declare")
 local lfs   = require("lfs")
-
+local dbg   = require("Dbg"):dbg()
 sandbox_run = false
 
+local old_write    = nil
+local file_methods = nil
 
 --------------------------------------------------------------------------
 -- Table containing valid functions for modulefiles.
@@ -90,6 +93,8 @@ local sandbox_env = {
                loadlib = package.loadlib, path = package.path, preload = package.preload,
                seeall = package.seeall },
 
+  math     = { floor = math.floor, ceil = math.ceil, min = math.min, max = math.max },
+
   ------------------------------------------------------------
   -- lmod functions
   ------------------------------------------------------------
@@ -97,12 +102,14 @@ local sandbox_env = {
   --- Load family functions ----
 
   load                 = load_module,
+  load_any             = load_any,
   try_load             = try_load,
   try_add              = try_load,
   mgrload              = mgrload,
   unload               = unload,
   always_load          = always_load,
   depends_on           = depends_on,
+  
 
   --- Load Modify functions ---
   atleast              = atleast,
@@ -167,7 +174,9 @@ local sandbox_env = {
   myModuleVersion      = myModuleVersion,
   myShellName          = myShellName,
   myShellType          = myShellType,
+  requireFullName      = requireFullName,
   userInGroup          = userInGroup,
+  userInGroups         = userInGroups,
   colorize             = colorize,
   color_banner         = color_banner,
 
@@ -202,6 +211,13 @@ local sandbox_env = {
   path_regularize      = path_regularize,
 
   ------------------------------------------------------------
+  -- dbg functions
+  ------------------------------------------------------------
+  dbg = { active = dbg.active, fini  = dbg.fini, print = dbg.print,
+          print2D = dbg.print2D, printA = dbg.printA, printT = dbg.printT, 
+          start = dbg.start },
+
+  ------------------------------------------------------------
   -- lfs functions
   ------------------------------------------------------------
   lfs = { attributes = lfs.attributes, chdir = lfs.chdir, lock_dir = lfs.lock_dir,
@@ -226,6 +242,9 @@ local sandbox_env = {
   capture              = capture,
   UUIDString           = UUIDString,
   execute              = execute,
+  isDefined            = isDefined,
+  isNotDefined         = isNotDefined,
+
   ------------------------------------------------------------
   -- Misc System Values
   ------------------------------------------------------------
@@ -247,7 +266,25 @@ function sandbox_registration(t)
    end
 end
 
+function sandbox_set_os_exit(func)
+   sandbox_env.os.exit = func
+end
 
+function turn_off_stderr()
+   file_methods = getmetatable(io.stderr).__index  -- any file will do
+   old_write    = file_methods.write
+   file_methods.write =
+      function(f,...)
+         if f ~= io.stderr then
+            return old_write(f,...)
+         end
+         return f
+      end
+end
+
+function turn_on_stderr()
+   file_methods.write = old_write
+end
 
 --------------------------------------------------------------------------
 -- This function is what actually "loads" a modulefile with protection

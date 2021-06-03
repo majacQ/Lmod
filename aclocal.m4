@@ -29,7 +29,7 @@ echo "Package version............................................." : Lmod-$Lmod
 echo "Package version (git) ......................................" : $lmodV
 echo 
 echo "LUA_INCLUDE................................................." : $LUA_INCLUDE
-echo "Lua executable.............................................." : $luaprog
+echo "Lua executable.............................................." : $PATH_TO_LUA
 echo "Luac executable............................................." : $PATH_TO_LUAC
 echo "User Controlled Prefix......................................" : $SITE_CONTROLLED_PREFIX
 echo "Prefix......................................................" : $prefix
@@ -69,7 +69,10 @@ echo "Use Tmod Find First rule instead of Find Best for defaults.." : $TMOD_FIND
 echo "MODULEPATH Initial file....................................." : $MODULEPATH_INIT
 echo "Use built-in lua packages instead of system provided pkgs..." : $USE_BUILT_IN_PKGS
 echo "Silence shell debugging output for bash/zsh................." : $SILENCE_SHELL_DEBUGGING
+echo "Allow root to use Lmod......................................" : $LMOD_ALLOW_ROOT_USE
+echo "Support KSH................................................." : $SUPPORT_KSH
 echo "Use the fast TCL interpreter................................" : $FAST_TCL_INTERP
+echo "Display Extensions w/ module avail.........................." : $AVAIL_EXTENSIONS
 echo "Allow for extended default.(ml intel/17 #-> intel/17.0.4)..." : $EXTENDED_DEFAULT  #"
 
 echo

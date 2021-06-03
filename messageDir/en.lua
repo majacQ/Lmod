@@ -89,6 +89,7 @@ return {
      e_Args_Not_Strings    = [==[Syntax error in file: %{fn}
  with command: %{cmdName}, one or more arguments are not strings.
 ]==], --
+     e_Args_Not_Strings_short = "command: %{cmdName}, one or more arguments are not strings.",
      e_Avail_No_MPATH      = "module avail is not possible. MODULEPATH is not set or not set with valid paths.\n",
      e_BrokenCacheFn       = "Spider cache fn: \"%{fn}\" appears broken",
      e_BrokenQ             = "Internal error: broken module Q\n",
@@ -112,6 +113,12 @@ Also make sure that all modulefiles written in TCL start with the string #%Modul
      e_Failed_Load_2       = [==[These module(s) or extension(s) exist but cannot be loaded as requested: %{kA}
    Try: "module spider %{kB}" to see how to load the module(s).
 ]==],
+     e_Failed_Load_any     = [==[The load_any function failed because it could not find any of the following modules : %{module_list}
+
+Please check the spelling or version number. Also try "module spider ..."
+
+Also make sure that all modulefiles written in TCL start with the string #%Module
+]==],
      e_Family_Conflict     = [==[You can only have one %{name} module loaded at a time.
 You already have %{oldName} loaded.
 To correct the situation, please execute the following command:
@@ -120,8 +127,11 @@ To correct the situation, please execute the following command:
 
 Please submit a consulting ticket if you require additional assistance.
 ]==],
-     e_Illegal_Load       = [==[The following module(s) are illegal: %{module_list}
+     e_Illegal_Load        = [==[The following module(s) are illegal: %{module_list}
 Lmod does not support modulefiles that start with two or more underscores
+]==],
+     e_Illegal_option      = [==[Option: "%{v}" is unknown.
+  Try module --help for usage.
 ]==],
      e_LocationT_Srch      = "Error in LocationT:search().",
      e_Missing_Value       = "%{func}(\"%{name}\") is not valid; a value is required.",
@@ -133,7 +143,7 @@ please execute the command \" clearMT\" and reload your modules.
    $ module swap %{oldFullName} %{newFullName}
 
 Alternatively, you can set the environment variable LMOD_DISABLE_SAME_NAME_AUTOSWAP to "no" to re-enable same name autoswapping.
-]==],
+]==], 
      e_No_Hashsum          = "Unable to find HashSum program (sha1sum, shasum, md5sum or md5).",
      e_No_Matching_Mods    = "No matching modules found.\n",
      e_No_Mod_Entry        = "%{routine}: Did not find module entry: \"%{name}\". This should not happen!\n",
@@ -143,9 +153,15 @@ Alternatively, you can set the environment variable LMOD_DISABLE_SAME_NAME_AUTOS
      e_No_ValidT_Entry     = "%{routine}: The validT table for %{name} has no entry for: \"%{value}\". Make sure that all keys in displayT have a matching key in validT. \nCheck spelling and case of name.\n",
      e_Prereq              = "Cannot load module \"%{name}\" without these module(s) loaded:\n   %{module_list}\n",
      e_Prereq_Any          = "Cannot load module \"%{name}\". At least one of these module(s) must be loaded:\n   %{module_list}\n",
+     e_RequireFullName     = [==[Module "%{sn}" must be loaded with the version specified, e.g. "module load %{fullName}". Use
+
+   $ module spider %{sn}
+
+for available versions.]==],
      e_Spdr_Timeout        = "Spider search timed out.\n",
      e_Swap_Failed         = "Swap failed: \"%{name}\" is not loaded.\n",
      e_Unable_2_Load       = "Unable to load module because of error when evaluating modulefile: %{name}\n     %{fn}: %{message}\n     Please check the modulefile and especially if there is a the line number specified in the above message",
+     e_Unable_2_Load_short = "%{message}",
      e_Unable_2_parse      = "Unable to parse: \"%{path}\". Aborting!\n",
      e_Unable_2_rename     = "Unable to rename %{from} to %{to}, error message: %{errMsg}",
      e_Unknown_Coll        = "User module collection: \"%{collection}\" does not exist.\n  Try \"module savelist\" for possible choices.\n",
@@ -163,8 +179,8 @@ Alternatively, you can set the environment variable LMOD_DISABLE_SAME_NAME_AUTOS
      m_Depend_Mods         = "\n    You will need to load all module(s) on any one of the lines below before the \"%{fullName}\" module is available to load.\n",
      m_Description         = "    Description:\n%{descript}\n\n",
      m_Direct_Load         = "\n    This module can be loaded directly: module load %{fullName}\n",
-     m_Extensions_head     = "This is a list of module extensions",
-     m_Extensions_tail     = "\nThese extensions cannot be loaded directly.\n",
+     m_Extensions_head     = "This is a list of module extensions \"module --nx avail ...\" to not show.\n",
+     m_Extensions_tail     = "\nThese extensions cannot be loaded directly, use \"module spider extension_name\" for more information.\n",
      m_Family_Swap         = "\nLmod is automatically replacing \"%{oldFullName}\" with \"%{newFullName}\".\n",
      m_For_System          = ", for system: \"%{sname}\"",
      m_Inactive_Modules    = "\nInactive Modules:\n",
@@ -172,6 +188,7 @@ Alternatively, you can set the environment variable LMOD_DISABLE_SAME_NAME_AUTOS
 Module defaults are chosen based on Find First Rules due to Name/Version/Version modules found in the module tree.
 See https://lmod.readthedocs.io/en/latest/060_locating.html for details.
 ]==],
+     m_Global_Alias_na     = "Alias cannot be loaded with current $MODULEPATH",
      m_ModProvides         = "\n    This module provides the following extensions:\n",
      m_Module_Msgs         = [==[
 %{border}
@@ -206,7 +223,8 @@ To search the contents of modules for matching words execute:
      m_Restore_Coll        = "Restoring modules from %{msg}\n",
      m_Reset_SysDflt       = "Resetting modules to system default. Reseting $MODULEPATH back to system default. All extra directories will be removed from $MODULEPATH.\n",
      m_Save_Coll           = "Saved current collection of modules to: \"%{a}\"%{msgTail}\n",
-     m_Spdr_L1             = [==[%{border}  For detailed information about a specific "%{key}" package (including how to load the modules) use the module's full name. Note that names that have a trailing (E) are extensions provided by other modules.
+     m_Spdr_L1             = [==[%{border}  For detailed information about a specific "%{key}" package (including how to load the modules) use the module's full name.
+  Note that names that have a trailing (E) are extensions provided by other modules.
   For example:
 
      $ module spider %{exampleV}
@@ -396,6 +414,7 @@ The system default contains no modules
      hidden_H  = "Avail and spider will report hidden modules",
      spdrT_H   = "a timeout for spider",
      trace_T   = "trace major changes such as loads",
+     nx_T      = "Do not print extensions",
 
      Where     = "\n  Where:\n",
      Inactive  = "\nInactive Modules",

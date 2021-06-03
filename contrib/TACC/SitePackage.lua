@@ -36,6 +36,7 @@ require("serializeTbl")
 require("myGlobals")
 require("string_utils")
 require("lmod_system_execute")
+require("capture")
 local Dbg     = require("Dbg")
 local dbg     = Dbg:dbg()
 PkgBase       = require("PkgBase")
@@ -73,36 +74,19 @@ local function load_hook(t)
    if (not host) then
       local i,j, first
       i,j, first, host = uname("%n"):find("([^.]*)%.([^.]*)%.")
+      if (not host) then
+         local fullhost = capture("hostname -f")
+         i,j, first, host = fullhost:find("([^.]*)%.([^.]*)%.")
+      end
    end
 
    local currentTime = epoch()
    local msg         = string.format("user=%s module=%s path=%s host=%s time=%f",
-                                     user, t.modFullName, t.fn, host or "<unknown>", currentTime)
+                                     user, t.modFullName, t.fn, host or "<unknown_syshost>", currentTime)
    local a           = s_msgA
    a[#a+1]           = msg
 
    dbg.fini()
-end
-
-buildHostsT = {
-   ["build.stampede.tacc.utexas.edu"]    = 1,
-   ["c560-904.stampede.tacc.utexas.edu"] = 1,
-   ["c560-903.stampede.tacc.utexas.edu"] = 1,
-   ["c560-902.stampede.tacc.utexas.edu"] = 1,
-   ["c560-901.stampede.tacc.utexas.edu"] = 1,
-   ["build.ls4.tacc.utexas.edu"]         = 1,
-}
-
---------------------------------------------------------------------------
--- writeCache_hook(): set dontWriteCache on build machines
-
-local function writeCache_hook(t)
-   local userName = getenv("USER")
-   local host     = uname("%n")
-
-   if (buildHostsT[host]) then
-      t.dontWriteCache = true
-   end
 end
 
 local function parse_updateFn_hook(updateSystemFn, t)
@@ -188,7 +172,6 @@ ExitHookA.register(report_loads)
 hook.register("avail",          avail_hook)
 hook.register("load",           load_hook)
 hook.register("parse_updateFn", parse_updateFn_hook)
-hook.register("writeCache",     writeCache_hook)
 
 sandbox_registration { Pkg      = Pkg,
                        tonumber = safe_tonumber,

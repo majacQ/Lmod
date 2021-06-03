@@ -112,13 +112,17 @@ local function compareRequestedLoadsWithActual()
    return aa, bb
 end
 
-local function l_error_on_missing_loaded_modules(aa,bb)
+local function l_createStackName(name)
+   return "__LMOD_STACK_" .. name
+end
 
+local function l_error_on_missing_loaded_modules(aa,bb)
    if (#aa > 0) then
-      local luaprog = "@path_to_lua@/lua"
+      local luaprog = "@path_to_lua@"
+      local found
       if (luaprog:sub(1,1) == "@") then
-         luaprog = find_exec_path("lua")
-         if (luaprog == nil) then
+         luaprog, found = findInPath("lua")
+         if (not found) then
             LmodError{msg="e_Failed_2_Find", name = "lua"}
          end
       end
@@ -332,12 +336,18 @@ function M.unsetenv(self, name, value, respect)
       return
    end
 
-   local frameStk = FrameStk:singleton()
-   local varT     = frameStk:varT()
+   local frameStk  = FrameStk:singleton()
+   local varT      = frameStk:varT()
    if (varT[name] == nil) then
-      varT[name] = Var:new(name)
+      varT[name]   = Var:new(name)
    end
    varT[name]:unset()
+
+   -- Unset stack variable if it exists
+   local stackName = l_createStackName(name)
+   if (varT[stackName]) then
+      varT[name]:unset()
+   end
    dbg.fini("MasterControl:unsetenv")
 end
 
@@ -363,7 +373,7 @@ function M.pushenv(self, name, value)
       LmodError{msg="e_Missing_Value",func = "pushenv", name = name}
    end
 
-   local stackName = "__LMOD_STACK_" .. name
+   local stackName = l_createStackName(name)
    local v64       = nil
    local v         = getenv(name)
    if (getenv(stackName) == nil and v) then
@@ -407,7 +417,7 @@ function M.popenv(self, name, value)
    name = name:trim()
    dbg.start{"MasterControl:popenv(\"",name,"\", \"",value,"\")"}
 
-   local stackName = "__LMOD_STACK_" .. name
+   local stackName = l_createStackName(name)
    local frameStk = FrameStk:singleton()
    local varT     = frameStk:varT()
 
@@ -856,7 +866,7 @@ function M.dependencyCk(self,mA)
       end
    end
 
-   dbg.fini("MasterControl:depends_on")
+   dbg.fini("MasterControl:dependencyCk")
    return {}
 end
 
@@ -895,13 +905,6 @@ function M.depends_on(self, mA)
       if (not mname:isloaded()) then
          mB[#mB + 1] = mname
       end
-   end
-
-   local frameStk = FrameStk:singleton()
-   if (masterTbl().checkSyntax and frameStk:count() > 1) then
-      dbg.print{"frameStk:count(): ",frameStk:count(),"\n"}
-      dbg.fini("MasterControl:depends_on")
-      return {}
    end
 
    registerUserLoads(mB)
@@ -974,7 +977,7 @@ function M.load_usr(self, mA)
       dbg.start{"MasterControl:load_usr(mA={"..s.."})"}
    end
    local frameStk = FrameStk:singleton()
-   if (masterTbl().checkSyntax and frameStk:count() > 1) then
+   if (checkSyntaxMode() and frameStk:count() > 1) then
       dbg.print{"frameStk:count(): ",frameStk:count(),"\n"}
       dbg.fini("MasterControl:load_usr")
       return {}
@@ -1015,6 +1018,34 @@ function M.load(self, mA)
    return a
 end
 
+function M.load_any(self, mA)
+   if (dbg.active()) then
+      local s = mAList(mA)
+      dbg.start{"MasterControl:load_any(mA={"..s.."})"}
+   end
+   local b
+   local uA     = {}
+   local result = false
+
+   for i = 1, #mA do
+      local mname = mA[i]
+      b = self:try_load{mname}
+      if (mname:isloaded()) then
+         result = true
+         break
+      else
+         uA[#uA+1] = mname:userName()
+      end
+   end
+
+   if (not result) then
+      LmodError{msg="e_Failed_Load_any", module_list=concatTbl(uA," ")}
+   end
+
+   dbg.fini("MasterControl:load_any")
+   return b
+end
+
 
 
 function M.mgrload(self, required, active)
@@ -1053,7 +1084,7 @@ end
 -- @param mA A array of MName objects.
 function M.try_load(self, mA)
    dbg.start{"MasterControl:try_load(mA)"}
-   deactivateWarning()
+   --deactivateWarning()
    self:load(mA)
    dbg.fini("MasterControl:try_load")
 end
@@ -1428,6 +1459,31 @@ function M.color_banner(self,color)
 end
 
 
+function M.set_errorFunc(self, errorFunc)
+   metaT = getmetatable(self).__index
+   metaT.error = errFunc
+end
+
+
+function M.userInGroups(self, ...)
+   local grps   = capture("groups")
+   local argA   = pack(...)
+   for g in grps:split("[ \n]") do
+      for i = 1, argA.n do
+         local group = argA[i]
+         if (g == group) then
+            return true
+         end
+      end
+   end
+   local userId = capture("id -u")
+   local isRoot = tonumber(userId) == 0
+   if (isRoot) then
+      return true
+   end
+   return false
+end   
+   
 function M.missing_module(self,userName, showName)
    s_missingModuleT[userName] = showName
 end

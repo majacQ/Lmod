@@ -1,32 +1,54 @@
-Lmod 8.1+
-   (8.1.1)  * Issue #392: include family info in spiderT and all other products based on spiderT like
-              dbT and the software page.
-   (8.1.2)  * Issue #382: Adding a spider_decoration hook so that sites can modify the output of spider
-              level 1 output.
-   (8.1.3)  * Issue #402: Add a shell-dependent Shell:report_failure() instead of always emitting "false".
-   (8.1.4)  * The R, perl, python, cmake report_failure() function ml status is false
-            * Issue #409: Added fish tab completion support (Thanks Alberto!)
-   (8.1.5)  * Issue #410: More fixes for the fish shell
-   (8.1.6)  * Issue #412: More fixes for the fish shell
-   (8.1.7)  * Issue #413: Support escape in things like PS1 for bash
-   (8.1.8)  * Issue #401: Use LMOD_PKG to determine where the lmod/etc directory is.
-   (8.1.9)  * Issue #401: Create and use LMOD_ROOT to be the parent lmod directory is located.
-   (8.1.10) * Add colorize() and color_banner() to sandbox for better message to users.
-   (8.1.11) * Allow init/env_modules_python.py.in to take a string or an array. 
-            * Change the way that Lmod determines the command.  Misspellings now fail.
-	    * Add finalize hook to match startup hook.
-	    * improved help message for disable.
-   (8.1.12) * Issue #417: move the abspath test from building spiderT and dbT to just
-              building reverseMapT
-   (8.1.13) * get the tag right for issue #417
-   (8.1.14) * Added test for building reverseMap with path directories which are symlinks
-            * Added new command "clearLmod" which does a module purge and removes all
-	      Lmod aliases and env. vars.
-   (8.1.15) * When building the spiderT tree, it now ignores "." in path.
-   (8.1.16) * Previous version failed to be uploaded to the world.  Bump version to fix.
-   (8.1.17) * Adding back "module switch" as an alias for "module swap"
-   (8.1.18) * Make --quiet work with module purge
-
-W.I.P:
-   (8.1.19) * Get settarg's getUname function handle linux that is not intel like ibm power 9
-            * Change directory search to require "rx" instead of just "x".
+Lmod 8.4+
+   (8.4.1)  * Issue #460: Change meta modules from having a separate file= to be
+              a fileT= in ModuleA
+   (8.4.2)  * Actually set shell name from the command line and not based on Shell Object.
+            * Issue #462: Allow for more matches with extended default.  The last character can
+              be: . _ - + = or letters
+   (8.4.3)  * Adding userInGroups(group1,group2,...) as a replacement for userInGroup(group)
+              (userInGroup calls userInGroups)
+            * Added new command check_module_tree_syntax to check for multiple marked defaults
+              for the same shortName module and that all modulefiles pass the syntax test.              
+   (8.4.4)  * Fix bug in MasterControl:userInGroups(): capture returns string and status and
+              tonumber() doesn't like it.
+   (8.4.5)  * Issue #447: Report (N/A) when global alias does not resolve with current $MODULEPATH
+   (8.4.6)  * Modify spiderT to know about mpath dependent aliases, hidden modulefiles.
+            * Issue #467:  added MName:find_exact_match_meta_module() to handle hidden meta modules
+	      loading. Changed versionStr (user input) to be false and not nil   
+   (8.4.7)  * Issue #461: Modified instructions for installing lua and lua-posix on ubuntu 18.04 and 20.04
+            * Issue #469: Use LMOD_ALLOW_ROOT_USE to control whether root uses Lmod or not
+	    * Suggestion from Xavier Delaruelle to define ModuleTool and ModuleToolVersion env vars
+	      and versioncmp test.
+            * Updated documentation for Lmod Env. Vars and TCL module functions.
+   (8.4.8)  * To match Tmod, ModuleTool and ModuleToolVersion are also TCL global variables.
+   (8.4.9)  * Issue #470, Issue #471: fix fish logic w.r.t. LMOD_ALLOW_ROOT_USE
+   (8.4.10) * User found bug where if sha1sum was not in current path, "module save" would die.
+            * Issue #474: Updated FAQ doc on how to handle missing new modules.
+   (8.4.11) * Issue #476: Move mrcT.mpath to separate table mrcMpathT
+            * Issue #477: Support finding real modules names with a version called "default"
+	    * Show extensions from hidden modules when doing (module --show_hidden avail)
+	    * Add option (--nx, --no_extensions) to not print extensions when doing "ml avail".
+   (8.4.12) * Make --nx only remove extensions from ml avail not spider. Make it a configure option.
+   (8.4.13) * Issue #479: Reworked MRC to fill mrcMpathT with mrc entries for each directory in
+              $MODULEPATH. Then walk each mpath directory for hidden, global aliases, and module aliases
+   (8.4.14) * Issue #480: make "module try-add <module_name>" ignore failure to be found but report
+              broken modules.
+   (8.4.15) * Issue #480: Fix the try_load() function to ignore failure to be found but report
+              broken modules.
+   (8.4.16) * Issue #483: Added hidden file to spider tests.  Showing that it works correctly.
+            * Fixed bug where providedByT (a.k.a. Extensions) was always printed when doing "ml keyword ..."
+	    * added lua module function requireFullName()
+   (8.4.17) * If python exists on system use $PYTHON -mjson.tool on the generation of *.json files from
+              update_lmod_system_spider_cache_files script.  Note $PYTHON is found by looking for
+	      python3, python or python2
+	    * added TCL module function require-fullname to match requireFullName in Lua.
+            * Do not check $cache_type twice, use $ext = lua for lua like operations in update
+              spider cache script.
+   (8.4.18) * Issue #481 (and PR #488) are merged in.
+              New configure options to specify where lua and luac executables exist
+              (--with-lua= and --with-luac=).  It is also possible to use --with-luaSuffix=.
+              Both --with-lua= and --with-luac= must be specified if one is specified
+              The option --with-luaSuffix= can not be used with --with-lua or --with-luac
+            * PR #489 is merged in. This fixes bug with "module --terse keyword"
+   (8.4.19) * MasterControl:unsetenv(name) also clears stack if it exists.
+            * Issue #490: use old way of following readlink as "readlink -f" is not universal.
+            

@@ -24,11 +24,24 @@ mrcT = {
   hiddenT = {},
   version2modT = {},
 }
+mrcMpathT = {}
 spiderT = {
   ["ProjectDIR/rt/softwarePage/mf"]  = {
     foo = {
+      defaultA = {
+        {
+          ["barefn"] = ".modulerc.lua",
+          ["defaultIdx"] = 2,
+          ["fn"] = "ProjectDIR/rt/softwarePage/mf/foo/.modulerc.lua",
+          ["fullName"] = "foo/.modulerc",
+          ["luaExt"] = 10,
+          ["mpath"] = "ProjectDIR/rt/softwarePage/mf",
+          ["value"] = "foo/1.0",
+        },
+      },
       defaultT = {
         ["barefn"] = ".modulerc.lua",
+        ["defaultIdx"] = 2,
         ["fn"] = "ProjectDIR/rt/softwarePage/mf/foo/.modulerc.lua",
         ["fullName"] = "foo/.modulerc",
         ["luaExt"] = 10,
@@ -129,8 +142,7 @@ spiderT = {
           ["canonical"] = "1.3",
           ["family"] = "bar",
           ["fn"] = "ProjectDIR/rt/softwarePage/mf/foo/1.3",
-          ["help"] = [[
-This is the help message for the foo 1.3 module
+          ["help"] = [[This is the help message for the foo 1.3 module
 And even more help
 ]],
           ["mpath"] = "ProjectDIR/rt/softwarePage/mf",
@@ -239,8 +251,7 @@ dbT = {
       ["Version"] = "1.3 ",
       ["family"] = "bar",
       ["fullName"] = "foo/1.3",
-      ["help"] = [[
-This is the help message for the foo 1.3 module
+      ["help"] = [[This is the help message for the foo 1.3 module
 And even more help
 ]],
       ["hidden"] = false,
@@ -290,8 +301,7 @@ spA = {
         ["description"] = "This is a descript ",
         ["family"] = "bar",
         ["full"] = "foo/1.3",
-        ["help"] = [[
-This is the help message for the foo 1.3 module
+        ["help"] = [[This is the help message for the foo 1.3 module
 And even more help
 ]],
         ["markedDefault"] = false,

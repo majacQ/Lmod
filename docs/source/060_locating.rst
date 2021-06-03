@@ -53,6 +53,9 @@ there are multiple directories specified in MODULEPATH, the rules get
 more complicated on what modulefile to load. Lmod uses the following
 rules to locate a modulefile:
 
+#. The user may specify *C/N*/default or *N*/default which is exactly
+   the same as *C/N* or *N*.  Namely Lmod removes the string
+   "/default" and then continues as if it was never there.
 #. It looks for an exact match in all ``MODULEPATH``
    directories. It picks the first match it finds.  This is true
    of hidden modules.  Specifying the fullName of a module will
@@ -60,7 +63,7 @@ rules to locate a modulefile:
 #. If a site has "extended defaults" enabled and a user types in part
    of the version then that part is used select the "best" of that
    version if any exist. Note that if user enters "abc/1" then it will
-   match "abc/1.*" but not "abc/17.*"
+   match "abc/1.\*" or "abc/1-\*" but not "abc/17.\*"
 #. If the name doesn't contain a version then Lmod looks for a
    marked default in the first directory that has one. A marked
    default which is also hidden will be loaded.
@@ -156,6 +159,23 @@ Using any of the above three ways will change the default to version
     ---------- /opt/apps/modulefiles/Core -----------
     ucc/8.1   ucc/9.2   ucc/11.1 (D)   ucc/12.2
 
+
+
+Lmod Order of Marking a Default
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+As stated above, there are four files used to mark a default::
+
+#. default symlink
+#. .modulerc.lua
+#. .modulerc
+#. .version
+
+Lmod searches in this order. If it finds the a number earlier in the
+list then the other are ignored.  In other words if your site as both
+a default symlink and a .modulerc.lua file then the default file is
+used and the .modulerc.lua file is ignored.
+
 Highest Version
 ~~~~~~~~~~~~~~~
 
@@ -194,6 +214,9 @@ The rules are different when the module layout is Name/Version/Version
 are in N/V/V format, the whole tree is searched with N/V/V rules.  Below
 are the rules that Lmod uses to locate a modulefile when in N/V/V mode:
 
+#. The user may specify *N*/default as *N/V*/default which is exactly
+   the same as *N* or *N/V*.  Namely Lmod removes the string
+   "/default" and then continues as if it was never there.
 #. It looks for an exact match in all ``MODULEPATH`` directories. It
    picks the first match it finds.
 #. If there is no exact match then Lmod finds the first match for the

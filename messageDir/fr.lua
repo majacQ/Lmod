@@ -1,4 +1,4 @@
---------------------------------------------------------------------------
+
 -- Lmod License
 --------------------------------------------------------------------------
 --
@@ -104,6 +104,7 @@ Il est aussi possible que votre cache soit désuète. Essayez :
      e_Failed_Load_2     = [==[Ce ou ces module(s) existent, mais ne peuvent pas être chargés tel que demandé: %{kA}
    Utilisez: "module spider %{kB}" pour voir la façon de les charger.
 ]==],
+     e_Failed_Load_any   = nil,
      e_Family_Conflict   = [==[Vous ne pouvez avoir qu'un module %{name} chargé à la fois.
 %{oldName} est déjà chargé.
 Pour corriger le problème, vous pouvez utiliser la commande suivante :
@@ -114,6 +115,7 @@ Merci de bien vouloir soumettre un ticket si vous désirez plus d'assistance.
 
 ]==],
      e_Illegal_Load      = nil,
+     e_Illegal_option    = nil,
      e_LocationT_Srch    = "Erreur dans la fonction 'LocationT:search()'",
      e_Missing_Value     = "%{func}(\"%{name}\") n'est pas valide, une valeur est requise",
      e_MT_corrupt        = [==[La table de modules stockée dans l'environnement est corrompue.

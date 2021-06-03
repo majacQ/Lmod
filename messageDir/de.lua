@@ -99,6 +99,7 @@ Es ist auch möglich, dass Ihr Cache veraltet ist. Versuchen Sie:
      e_Failed_Load_2       = [==[Diese Module existieren, aber können nicht wie gewünscht geladen werden: %{kA}
    Versuchen Sie: "module spider %{kB}" um anzuzeigen, wie die Module geladen werden.
 ]==],
+     e_Failed_Load_any     = nil,
      e_Family_Conflict     = [==[Nur ein Modul von "%{name}" kann gleichzeitig geladen sein.
 Es ist bereits "%{oldName}" geladen.
 Verwenden Sie folgendes Kommando, um das Modul zu laden:
@@ -108,6 +109,7 @@ Verwenden Sie folgendes Kommando, um das Modul zu laden:
 Falls Sie weitere Unterstützung brauchen, erstellen Sie ein Support-Ticket.
 ]==],
      e_Illegal_Load        = nil,
+     e_Illegal_option      = nil,
      e_LocationT_Srch      = "Fehler in \"LocationT:search()\".",
      e_Missing_Value       = "%{func}(\"%{name}\") ist ungültig. Es wird ein Wert benötigt.",
      e_MT_corrupt          = [==[Die gespeicherte Modul-Liste ist beschädigt.
@@ -213,7 +215,7 @@ Um detaillierte Informationen über ein bestimmtes Modul zu erhalten,
 müssen Sie eine Version angeben, falls es mehr als eine Version gibt:
   $ module spider Foo/11.1
 %{border}]==],
-     m_Sticky_Mods         = [==[Die folgenden Module wurde nicht entladen:
+     m_Sticky_Mods         = [==[Die folgenden Module wurden nicht entladen:
   (Benutzen Sie "module --force purge" um alle Module zu entladen):
 ]==],
      m_Sticky_Unstuck      = "\nDie folgenden angehefteten Module konnten nicht erneut geladen werden:\n",

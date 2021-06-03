@@ -77,6 +77,7 @@ También es posible que su archivo de cache estea desactualizado. Intente:
      e_Failed_Load_2       = [==[Estos módulos existen pero no pueden ser cargados como ha solicitado: %{kA}
    Intente: "module spider %{kB}" para ver como cargar los módulos.
 ]==],
+     e_Failed_Load_any     = nil,
      e_Family_Conflict     = [==[Sólo puede tener un módulo %{name} cargado a la vez.
 Ya tiene %{oldName} cargado.
 Para solucionar esta situación, introduzca el siguiente comando:
@@ -85,6 +86,7 @@ Para solucionar esta situación, introduzca el siguiente comando:
 
 Por favor, envíe un ticket si necesita más ayuda.
 ]==],
+     e_Illegal_option      = nil,
      e_Illegal_Load        = nil,
      e_LocationT_Srch      = "Error in LocationT:search()",
      e_Missing_Value       = "%{func}(\"%{name}\") no es válido, es necesario un valor",

@@ -1,4 +1,4 @@
-#!@path_to_lua@/lua
+#!@path_to_lua@
 -- -*- lua -*-
 
 --------------------------------------------------------------------------
@@ -129,7 +129,6 @@ require("utils")
 MF_Base = require("MF_Base")
 
 local Version      = "0.0"
-_G._DEBUG          = false                 -- Required by luaposix 33
 local dbg          = require("Dbg"):dbg()
 local Optiks       = require("Optiks")
 local getenv       = os.getenv
@@ -173,11 +172,17 @@ local ignoreA = {
    "HOSTTYPE",
    "LC_ALL",
    "LINES",
+   "LMOD_CMD",
+   "LMOD_DIR",
+   "LMOD_PKG",
+   "LMOD_ROOT",
    "LMOD_SETTARG_CMD",
+   "LMOD_SETTARG_FULL_SUPPORT",
    "LMOD_VERSION",
    "LOGNAME",
    "MACHTYPE",
    "MAILER",
+   "MODULESHOME",
    "OLDPWD",
    "OSTYPE",
    "PAGER",
@@ -341,11 +346,13 @@ local function cleanPath(value)
    pathA        = {}
 
    for execName in pairs(execT) do
-      local cmd = findInPath(execName, myPath)
-      if (cmd) then
+      local cmd, found = findInPath(execName, myPath)
+      if (found) then
          local dir = dirname(cmd):gsub("/+$","")
          local p = path_regularize(dir)
-         pathT[p].keep = true
+         if (p and pathT[p]) then
+            pathT[p].keep = true
+         end
       end
    end
 
@@ -402,7 +409,7 @@ function indexPath(old, oldA, new, newA)
       local newEntry = newA[idxN]
 
       icnt = icnt + 1
-      if (icnt > 5) then
+      if (icnt > newN) then
          break
       end
 
@@ -416,7 +423,7 @@ function indexPath(old, oldA, new, newA)
          idxN = idxN + 2 - idxO
          idxO = 1
          if (idxN > idxM) then
-            dbg.fini("indexPath")
+            dbg.fini("(3) indexPath")
             return -1
          end
       end
@@ -468,11 +475,12 @@ function main()
       os.exit(0)
    end
 
-   local LuaCmd = "@path_to_lua@/lua"
+   local LuaCmd = "@path_to_lua@"
+   local found
 
    if (LuaCmd:sub(1,1) == "@") then
-      LuaCmd = findInPath("lua")
-      if (LuaCmd == nil) then
+      LuaCmd, found = findInPath("lua")
+      if (not found) then
          io.stderr:write("Unable to find lua program")
          return
       end
@@ -497,9 +505,11 @@ function main()
       }
    end
 
+   dbg.print{"cmd: ",concatTbl(cmdA," "),"\n"}
+
    local s = capture(concatTbl(cmdA," "))
 
-   if (masterTbl.debug) then
+   if (masterTbl.debug > 0) then
       local f = io.open("s.log","w")
       if (f) then
          f:write(s)
@@ -515,7 +525,7 @@ function main()
    if (masterTbl.outFn) then
       local f = io.open(masterTbl.outFn,"w")
       if (f) then
-         f:write(s)
+         f:write(s,"\n")
          f:close()
       else
          io.stderr:write("Unable to write modulefile named: ",masterTbl.outFn,"\n")

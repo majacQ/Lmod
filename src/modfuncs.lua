@@ -57,6 +57,7 @@ require("utils")
 require("string_utils")
 require("parseVersion")
 require("TermWidth")
+require("declare")
 
 local BeautifulTbl = require("BeautifulTbl")
 local MName        = require("MName")
@@ -204,6 +205,15 @@ function mgrload(required, active)
 end
 
 
+function load_any(...)
+   dbg.start{"load_any(",concatTbl({...},", "),")"}
+   if (not validateModules("load_any",...)) then return {} end
+
+   local b = mcp:load_any(MName:buildA(mcp:MNameType(), ...))
+   dbg.fini("load_any")
+   return b
+end   
+
 --- PATH functions ---
 --------------------------------------------------------------------------
 -- convert arguments into a table if necessary.
@@ -308,11 +318,11 @@ end
 --------------------------------------------------------------------------
 -- This function allows only module to claim the name.  It is a
 -- generalized prereq/conflict function.
-function family(...)
-   dbg.start{"family(",concatTbl({...},", "),")"}
-   if (not validateStringArgs("family",...)) then return end
+function family(name)
+   dbg.start{"family(",name,")"}
+   if (not validateStringArgs("family",name)) then return end
 
-   mcp:family(...)
+   mcp:family(name)
    dbg.fini("family")
 end
 
@@ -464,19 +474,17 @@ function help(...)
    dbg.fini("help")
 end
 
-function userInGroup(group)
-   local grps   = capture("groups")
-   local found  = false
-   local userId = capture("id -u")
-   local isRoot = tonumber(userId) == 0
-   for g in grps:split("[ \n]") do
-      if (g == group or isRoot)  then
-         found = true
-         break
-      end
-   end
-   return found
+
+function userInGroups(...)
+   dbg.start{"userInGroups(...)"}
+   if (not validateStringArgs("userInGroups",...)) then return end
+   local iret = mcp:userInGroups(...)
+   dbg.fini("userInGroups")
+   return iret
 end
+
+declare("userInGroup")
+userInGroup = userInGroups
 
 --------------------------------------------------------------------------
 -- Convert version to canonical so that it can be used in a comparison.
@@ -540,7 +548,7 @@ end
 -- @param is the starting version
 -- @param ie the ending version.
 function between(m,is,ie)
-   dbg.start{"between(",m,is,ie,")"}
+   dbg.start{"between(","\"",m,"\",\"",is,"\",\"",ie,"\")"}
 
    local mname = MName:new("load", m, "between", is, ie)
 
@@ -609,7 +617,6 @@ end
 function add_property(...)
    dbg.start{"add_property(",concatTbl({...},", "),")"}
    if (not validateStringArgs("add_property",...)) then return end
-
    mcp:add_property(...)
    dbg.fini("add_property")
 end
@@ -699,6 +706,11 @@ function moduleStackTraceBack(msg)
    return _concatTbl(bb,"")
 end
 
+function requireFullName()
+    if (myModuleUsrName() ~= myModuleFullName()) then
+       LmodError{msg="e_RequireFullName", sn = myModuleName(), fullName= myModuleFullName()}
+    end
+end
 
 
 --------------------------------------------------------------------------
@@ -734,7 +746,7 @@ end
 -- not loaded.  The reverse of an unload is a no-op.
 function unload(...)
    dbg.start{"unload(",concatTbl({...},", "),")"}
-   if (not validateStringArgs("unload",...)) then return {} end
+   if (not validateModules("unload",...)) then return {} end
 
    local b = mcp:unload(MName:buildA("mt",...))
    dbg.fini("unload")
@@ -758,7 +770,7 @@ end
 -- function is a no-op.
 function always_unload(...)
    dbg.start{"always_unload(",concatTbl({...},", "),")"}
-   if (not validateStringArgs("always_unload",...)) then return {} end
+   if (not validateModules("always_unload",...)) then return {} end
 
    local b = mcp:unload(MName:buildA("mt",...))
    dbg.fini("always_unload")
@@ -767,7 +779,7 @@ end
 
 function depends_on(...)
    dbg.start{"depends_on(",concatTbl({...},", "),")"}
-   if (not validateStringArgs("depends_on",...)) then return {} end
+   if (not validateModules("depends_on",...)) then return {} end
 
    local b = mcp:depends_on(MName:buildA(mcp:MNameType(),...))
    dbg.fini("depends_on")

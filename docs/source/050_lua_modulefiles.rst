@@ -44,7 +44,9 @@ unset during unloading.
    example " " or  ";" 
 
 **setenv** ("NAME", "*value*"):
-   assigns to the environment variable "NAME" the value.
+   assigns to the environment variable "NAME" the value.  Do not use this
+   function to assign the initial to a path-like variable.  Use
+   **append_path** or **prepend_path** instead.
 
 **pushenv** ("NAME", "*value*"):
    sets **NAME** to *value* just like **setenv**.  In addition it
@@ -53,13 +55,19 @@ unset during unloading.
    **pushenv** ("FOO",false) will clear "FOO" and the pop will return
    the previous value.
 
+**add_property** ("NAME", "*value*"):
+   See :ref:`lmodrc-label` for how to use this function.
+
+**remove_property** ("NAME", "*value*"):
+   See :ref:`lmodrc-label` for how to use this function.
 
 **unsetenv** ("NAME"):
    unset the value associated with "NAME".  This command is a no-op
    when the mode is unload.
 
 **whatis** ("STRING"):
-    The whatis command can be called repeatedly with different strings. See the Administrator Guide for more details.
+    The whatis command can be called repeatedly with different strings. 
+    See the Administrator Guide for more details.
 
 **help** ( [[ *help string* ]]):
      What is printed out when the help command is called. Note that
@@ -72,15 +80,25 @@ unset during unloading.
      **pathJoin("/a","b/c") .. "/"** to get "/a/b/c/".
 
 **depends_on** ("pkgA", "pkgB", "pkgC"):
-     loads all modules.  When unloading only dependent modules are
+     Loads all modules.  When unloading only dependent modules are
      unloaded.  See :ref:`dependent_modules-label` for details.
 
 
 **load** ("pkgA", "pkgB", "pkgC"):
      load all modules. Report error if unable to load.
 
+**load_any** ("pkgA", "pkgB", "pkgC"):
+     loads the first module found. Report error if unable to load any
+     of the modules.  When unloading all modules are marked to be
+     unloaded.
+
 **try_load** ("pkgA", "pkgB", "pkgC"):
-     load all modules. No errors reported if unable to load.
+     load all modules. No errors reported if unable to load. Any other
+     errors will be reported.
+
+
+**userInGroups** ("group1", "group2", ...):
+     Returns true if user is root or a member of one of the groups listed.
 
 **mgrload** (required, active_object):
      load a single module file. If required is true then error out if
@@ -89,7 +107,7 @@ unset during unloading.
 
 
 **always_load** ("pkgA", "pkgB", "pkgC"):
-     load all modules. However when this command is reversed it does nothing.
+     load all modules. However, when this command is reversed, it does nothing.
 
 **set_alias** ("name","value"):
      define an alias to name with value.
@@ -102,10 +120,22 @@ unset during unloading.
      A user can only have one family "name" loaded at a time. For example family("compiler") would mean that a user could only have one compiler loaded at a time.
 **prereq** ("name1", "name2"):
      The current modulefile will only load if **all** the listed modules are already loaded.
+
 **prereq_any** ("name1", "name2"):
      The current modulefile will only load if **any** of the listed modules are already loaded.
+
 **conflict** ("name1", "name2"):
      The current modulefile will only load if all listed modules are NOT loaded.
+
+**extensions** ("numpy/2.1, scipy/3.2, foo/1.3"):
+     This module provides the following extensions. Place the list of
+     extensions as a single string.
+
+**requireFullName** ():
+     This function throws an error if module name specified by the
+     user is not the fullName. Typically used as::
+
+        if (mode() == "load") then requireFullName() end
 
 
 Extra functions
@@ -114,37 +144,57 @@ Extra functions
 The entries below describe several useful commands that come with Lmod that can be used in modulefiles.
 
 **os.getenv** ("NAME"):
-    Ask for environment for the value of "NAME". Note that if the
-    "NAME" might not be in the environment, then it is probably best
+    Get the value for the environment variable called "NAME". Note that if 
+    "NAME" is not set in the environment, then it is probably best
     to do::
 
        local foo=os.getenv("FOO") or ""
 
     otherwise ``foo`` will have the value of ``nil``.
 
+**os.exit(number)**:
+    Exits a modulefile.  Note that no environment variables are
+    changed when this command is evaluated.
+
 **capture** ("string"):
     Run the "string" as a command and capture the output.  This
     function uses the value of LD_PRELOAD and LD_LIBRARY_PATH found
     when Lmod is configured. Use **subprocess** if you wish to use the
-    current values.
+    current values. There may be a trailing newline in the result which is your
+    responsibility to remove or otherwise handle.
+
 **subprocess** ("string")
-    Run the "string" as a command and capture the output.  
+    Run the "string" as a command and capture the output.  There may
+    be a trailing newline in the result which is your responsibility
+    to remove or otherwise handle. 
+
 **isFile** ("name"):
     Returns true if "name" is a file.
+
 **isDir** ("name"):
     Returns true if "name" is a directory.
+
 **splitFileName** ("name"):
     Returns both the directory and the file name. ``local d,f=splitFileName("/a/b/c.ext")``. Then ``d="/a/b"``, ``f="c.ext"``
+
 **LmodMessage** ("string",...):
     Prints a message to the user.
+
 **LmodError** ("string","..."):
     Print Error string and exit without loading the modulefile.
+
 **mode** ():
-    Returns the string "load" when a modulefile is being loaded and "unload" when unloading.
+    Returns the string "load" when a modulefile is being loaded,
+    "unload" when unloading, and "spider" when a modulefile is
+    processed builting the spider cache which is used by *module
+    avail* and *module spider*.
+
 **isloaded** ("NAME"):
     Return true when module "NAME" is loaded.
+
 **LmodVersion** ():
     The version of lmod.
+
 **execute** {cmd="*<any command>*",modeA={"load"}}
     Run any command with a certain mode.  For example
     **execute** {cmd="ulimit -s unlimited",modeA={"load"}} will run
@@ -157,11 +207,17 @@ Modifier functions to prereq and loads
 
 **atleast** ("name","version"):
     This modifier function will only succeed if the module is
-    "version" or newer.
+    "version" or newer. See the between function for adding a "<" to
+    modify the search criteria.
 
-**between** ("name","v1","v2"):
-    This modifier function will only succeed if the module's version is
-    equal to or between "v1" and "v2".
+**between** ("name","v1","v2"): This modifier function will only
+    succeed if the module's version is equal to or between "v1" and
+    "v2". Note that version "1.2" is the same as "1.2.0.0.0....".
+    This means that between("foo","2.7","3.0") would include "foo/3.0"
+    but not "foo/3.0.0.1".  You can add a "<" to either the lower or
+    upper version boundary to specify less than instead of "<=".  So
+    between("foo","2.7<","<3.0") would want any module greater than 2.7
+    and less than 3.0.
 
 **latest** ("name"):
     This modifier function will only succeed if the module has the
@@ -203,3 +259,21 @@ the name and version of a modulefile.
    Returns the hierarchy of the current module.  See the section on
    Generic Modules for more details.
 
+Math Functions
+~~~~~~~~~~~~~~
+
+**math.floor** (): math floor function
+
+**math.ceil** (): math ceil function
+
+**math.max** (): math max function
+
+**math.min** (): math min function
+
+
+Special Functions
+~~~~~~~~~~~~~~~~~
+
+**inherit** (): imports the contents of exact same name module also
+   found in the module tree. (See :ref:`inherit-label` for an
+   explanation.)

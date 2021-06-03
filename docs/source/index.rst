@@ -41,6 +41,22 @@ zsh.  Also available for perl and python.
 It is also very easy to switch between different versions of a package
 or remove it.
 
+Lmod Web Sites
+^^^^^^^^^^^^^^
+
+    * Documentation:          https://lmod.readthedocs.io/en/latest/
+    * Github:                 https://github.com/TACC/Lmod
+    * Sourceforge:            https://lmod.sf.net
+    * TACC Homepage:          https://www.tacc.utexas.edu/research-development/tacc-projects/lmod
+    * Lmod Test Suite:        https://github.com/rtmclay/Lmod_test_suite
+    * Join Lmod Mailing list: https://sourceforge.net/projects/lmod/lists/lmod-users
+
+The most up-to-date source is at github. There is a secondary git repo
+found at Sourceforge. Both repos are the same. Stable releases in the
+form of tar files can be found at Sourceforce. All label versions found
+at the git repos have passed Lmod's regression test suite.
+
+
 Introduction to Lmod
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -69,6 +85,8 @@ Lmod Guide.  The rest of the guides can be read as needed.
    030_installing
    045_transition
    050_lua_modulefiles
+   051_tcl_modulefiles
+   052_Environment_Variables
    055_module_names
    060_locating
    070_standard_modules
@@ -109,13 +127,15 @@ Advanced Topics
    300_tracking_module_usage
    310_settarg
    320_improving_perf
+   330_extensions
+   340_inherit
+   350_community
 
 Topics yet to be written
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
 #. Optional Software layout, two digit rule
 #. Advanced Topics: priority path, .modulerc tricks
-#. inherit
 #. internal structure of lmod.
 
 

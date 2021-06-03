@@ -20,7 +20,7 @@ How does the module command work?
 
        setenv("FOO", "BAR")
 
-   then "$LMOD_CMD bash load foo/1.0" produces::
+   then "$LMOD_CMD bash load foo/1.0" the following string written to stdout::
 
        export FOO=BAR
        ...
@@ -28,7 +28,6 @@ How does the module command work?
    The eval command read that output from stdout and changes the
    current shell's environment. Any text written to stderr bypasses
    the eval and written to the terminal.
-
 
 What are the environment variables _ModuleTable001_, _ModuleTable002_,
 etc doing it in the environment?
@@ -77,6 +76,38 @@ Why doesn't  % ``module avail |& grep ucc``  work under tcsh and works under bas
     instead as this will only output modules that have "ucc" in
     their name.
 
+
+Why does Lmod require a static location of lua? Why shouldn't a site
+allow Lmod to use the lua found in the path?
+
+    The short answer is that it is possible but for general use it is
+    not a good idea. If you change the first line of the lmod script
+    to be::
+
+       "#!/usr/bin/env lua"
+
+    and all the other Lmod executable scripts to do the same then all
+    the scripts would use the lua found in the user's $PATH. There
+    are other things that would have to change as well. Lmod
+    carefully sets two env. vars: LUA_PATH and LUA_CPATH to be
+    compatible with the Lua that was used to install lmod.
+
+    So why does Lmod go to this much trouble? Why doesn't Lmod just
+    use the lua found in the path and not set LUA_PATH and LUA_CPATH.
+    Earlier version of Lmod did not. The answer is users.
+    Lmod has to protect itself from every user out there. What if a user
+    installs their own Lua? What if your system install of Lua is
+    version 5.1 but your user wants to install the latest version of Lua.
+    The libraries that Lmod depends on change with version. What if a
+    user installs their own version lua but doesn't install the
+    required libraries for Lmod to work (lua-posix, lfs) or they
+    install their own library called lfs but it does something
+    completely different. Lmod would fail with very strange errors. 
+
+    To sum up. Lmod is very careful to use the Lua that was used to
+    install it and the necessary libraries. Lmod is also very careful
+    to set LUA_PATH and LUA_CPATH internally so that user changes to
+    those env. variables don't affect how Lmod runs. 
 
 Can I disable the pager output?
 
@@ -206,7 +237,7 @@ and Tmod?
 
     #%Module
     global env
-    if { [info exists env(LMOD_VERSION_MAJOR)]} {
+    if { [info exists $env(LMOD_VERSION_MAJOR)]} {
        hide-version CUDA/8.8.8
     }
 
@@ -217,7 +248,15 @@ and Tmod?
     #%Module
     ...
     global env
-    if { [info exists env(LMOD_VERSION_MAJOR)]} {
+    if { [info exists $env(LMOD_VERSION_MAJOR)]} {
+       family compiler
+    }
+
+  As of Lmod 8.4.8+ you can also use the TCL global variable ModuleTool::
+
+    #%Module
+    ...
+    if ( [ info exists ::ModuleTool ] && $::ModuleTool == "Lmod" } {
        family compiler
     }
 
@@ -225,7 +264,7 @@ How can I get the shell functions created by modules in bash shell
 scripts such as job submission scripts?
 
    First, please make sure that shell functions and alias works
-   correctly in bash interactive subshells.  If they don't then your
+   correctly in bash interactive sub-shells.  If they don't then your
    site is not setup correctly.
 
    Once that works then change the first line of the shell script to
@@ -258,5 +297,26 @@ How to use module commands inside a Makefile?
       module_list:
              source $$MODULESHOME/init/bash; module list
 
-   
-        
+What to do if new modules are missing when doing ``module avail``?
+
+   If your site adds a new modulefile to the site's $MODULEPATH but
+   are unable to see it with ``module avail``?
+
+   It is likely that your site is having an spider cache issue.  If
+   you see different results from the following commands then that is
+   the problem::
+
+      $ module --ignore_cache avail
+      $ module                avail
+
+   If you see a difference between the above two commands, delete (if
+   it exists) the user's spider cache::
+
+      $ rm -rf ~/.lmod.d/.cache ~/.lmod.d/__cache__
+
+   and try again.  If that still leads to a difference then there is a
+   out-of-date system spider cache.  Please see
+   :ref:`system-spider-cache-label` on how to setup and update a
+   system spider cache.  This issue can happen with a user's personal
+   spider cache.  Please see :ref:`user-spider-cache-label` for more
+   details.

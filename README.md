@@ -31,6 +31,58 @@ release at sourceforge.
 
 ## ChangeLog
 
+
+### Lmod 8.4:
+
+Features:
+
+   1. Support for Lua 5.4 added.
+
+   2. Improved support for ksh and ksh scripts.
+   
+   3. Improved documentation for software hierarchy and community module collections.
+
+Bug Fixes:
+
+   1. Handle exit in TCL modulefile; Handle os.exit() when performing spider
+
+   2. Now handles /bin/dash startup.
+
+   3. Support improved for fish shell
+   
+
+### Lmod 8.3:
+
+Features:
+
+   1. The function extensions() now takes a string of comma separated names.  This is to get around the number of arguments limit in Lua.
+
+   2. Add support for "atleast()" and "between()" functions support a "<" to signify a less than instead of less than or equal to between range.
+
+Bug Fixes:
+
+   1. Make "ml - foo" an error.
+
+   2. It is now safe to have os.exit(1) in a modulefile. Spider can now handle it.
+
+### Lmod 8.2:
+
+Features:
+
+   1. Better support for the fish shell including tab completion (Thanks Alberto!)
+
+   2. New function extensions(): This allows for modules like python to report that the extensions  numpy and scipy are part of the modules. Users can use "module spider numpy" to find which modules provide numpy etc.
+      
+   3. Added a new command "clearLmod" which does a module purge and removes all LMOD aliases and environment variables.
+
+Bug Fixes:
+
+   1. Remove asking for the absolute path for generating spiderT and dbT. It now only use when building the reverseMapT.
+
+   2. Lmod now requires "rx" other access when searching for modulefiles.
+
+   3. settarg correctly handles a power9 processor running linux.
+
 ### Lmod 8.1:
 
 Features:

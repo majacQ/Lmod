@@ -456,6 +456,28 @@ proc unsetenv { var {val {}}} {
     cmdargs "unsetenv" $var $val
 }
 
+proc require-fullname {} {
+    cmdargs "requireFullName"
+}
+
+
+# Dictionary-style string comparison
+# Use dictionary sort of lsort proc to compare two strings in the "string
+# compare" fashion (returning -1, 0 or 1). Tcl dictionary-style comparison
+# enables to compare software versions (ex: "1.10" is greater than "1.8")
+proc versioncmp {str1 str2} {
+   if {$str1 eq $str2} {
+      return 0
+   # put both strings in a list, then lsort it and get first element
+   } elseif {[lindex [lsort -dictionary [list $str1 $str2]] 0] eq $str1} {
+      return -1
+   } else {
+      return 1
+   }
+}
+
+
+
 proc pushenv { var val } {
     global env  g_varsT
     set env($var) $val
@@ -555,14 +577,14 @@ proc doubleQuoteEscaped {text} {
 proc cmdargs { cmd args } {
     global g_outputA
     foreach arg $args {
-	#if {$arg != ""} {
-	    set val [doubleQuoteEscaped $arg]
-	    lappend cmdArgsL "\"$val\""
-	#}
+        set val [doubleQuoteEscaped $arg]
+        lappend cmdArgsL "\"$val\""
     }
     if {[info exists cmdArgsL]} {
         set cmdArgs [join $cmdArgsL ","]
 	lappend g_outputA  "$cmd\($cmdArgs\)\n"
+    } else {
+	lappend g_outputA  "$cmd\(\)\n"
     }
 }
 
@@ -570,15 +592,34 @@ proc depends-on { args} {
     eval cmdargs "depends_on" $args
 }
 
+proc my_exit { {code 1} } {
+    eval cmdargs "os.exit" $code
+}
+
 proc always-load { args} {
-    eval cmdargs "depends_on" $args
+    eval cmdargs "always_load" $args
 }
 proc family { var } {
     cmdargs "family" $var
 }
 
+proc extensions { args } {
+    foreach arg $args {
+        set val [doubleQuoteEscaped $arg]
+        lappend cmdArgsL $val
+    }
+    if {[info exists cmdArgsL]} {
+        set cmdArgs [join $cmdArgsL ","]
+	eval cmdargs "extensions" $cmdArgs
+    }
+}
+
 proc loadcmd { args } {
     eval cmdargs "load" $args
+}
+
+proc load_any_cmd { args } {
+    eval cmdargs "load_any" $args
 }
 
 proc swapcmd { old {new {}}} {
@@ -764,6 +805,9 @@ proc module { command args } {
         load {
             eval loadcmd $args
         }
+        load-any {
+            eval load_any_cmd $args
+        }
 	switch -
 	swap {
 	    eval swapcmd $args
@@ -800,9 +844,10 @@ proc reportError {message} {
 }
 
 proc execute-modulefile {modfile } {
-    global env g_help ModulesCurrentModulefile putMode g_shellType g_shellName
+    global env g_help ModulesCurrentModulefile putMode g_shellType g_shellName ModuleTool ModuleToolVersion
     set ModulesCurrentModulefile $modfile
-
+    set ModuleTool        "Lmod"
+    set ModuleToolVersion $env(LMOD_VERSION)
     set putMode "normal"
 
     if {[info exists child] && [interp exists $child]} {
@@ -810,39 +855,43 @@ proc execute-modulefile {modfile } {
     }
 	
     set child [interp create]
-    interp alias $child add-property   	{} add-property
-    interp alias $child always-load    	{} always-load
-    interp alias $child append-path    	{} append-path
-    interp alias $child conflict       	{} conflict
-    interp alias $child depends-on     	{} depends-on
-    interp alias $child family         	{} family
-    interp alias $child initGA         	{} depends-on
-    interp alias $child is-loaded      	{} is-loaded
-    interp alias $child module         	{} module
-    interp alias $child module-alias   	{} module-alias
-    interp alias $child module-info    	{} module-info
-    interp alias $child module-version 	{} module-version
-    interp alias $child module-whatis  	{} module-whatis
-    interp alias $child myPuts         	{} myPuts
-    interp alias $child prepend-path   	{} prepend-path
-    interp alias $child prereq         	{} prereq
-    interp alias $child prereq-any     	{} prereq-any
-    interp alias $child pushenv        	{} pushenv
-    interp alias $child puts           	{} myPuts
-    interp alias $child remove-path    	{} remove-path
-    interp alias $child remove-property {} remove-property
-    interp alias $child reportError     {} reportError
-    interp alias $child set-alias       {} set-alias
-    interp alias $child setPutMode      {} setPutMode
-    interp alias $child setenv          {} setenv
-    interp alias $child showResults     {} showResults
-    interp alias $child system          {} system
-    interp alias $child uname           {} uname
-    interp alias $child unset-alias     {} unset-alias
-    interp alias $child unsetenv        {} unsetenv
+    interp alias $child add-property   	 {} add-property
+    interp alias $child always-load    	 {} always-load
+    interp alias $child append-path    	 {} append-path
+    interp alias $child conflict       	 {} conflict
+    interp alias $child depends-on     	 {} depends-on
+    interp alias $child exit     	 {} my_exit
+    interp alias $child extensions     	 {} extensions
+    interp alias $child family         	 {} family
+    interp alias $child initGA         	 {} initGA
+    interp alias $child is-loaded      	 {} is-loaded
+    interp alias $child module         	 {} module
+    interp alias $child module-info    	 {} module-info
+    interp alias $child module-whatis  	 {} module-whatis
+    interp alias $child myPuts         	 {} myPuts
+    interp alias $child prepend-path   	 {} prepend-path
+    interp alias $child prereq         	 {} prereq
+    interp alias $child prereq-any     	 {} prereq-any
+    interp alias $child pushenv        	 {} pushenv
+    interp alias $child puts           	 {} myPuts
+    interp alias $child remove-path    	 {} remove-path
+    interp alias $child remove-property  {} remove-property
+    interp alias $child reportError      {} reportError
+    interp alias $child require-fullname {} require-fullname
+    interp alias $child set-alias        {} set-alias
+    interp alias $child setPutMode       {} setPutMode
+    interp alias $child setenv           {} setenv
+    interp alias $child showResults      {} showResults
+    interp alias $child system           {} system
+    interp alias $child uname            {} uname
+    interp alias $child unset-alias      {} unset-alias
+    interp alias $child unsetenv         {} unsetenv
+    interp alias $child versioncmp       {} versioncmp
 
     interp eval $child {global ModulesCurrentModulefile g_help g_shellType g_shellName}
     interp eval $child [list "set" "ModulesCurrentModulefile" $modfile]
+    interp eval $child [list "set" "ModuleTool"               "Lmod"]
+    interp eval $child [list "set" "ModuleToolVersion"        $env(LMOD_VERSION)]
     interp eval $child [list "set" "g_help"                   $g_help]
     interp eval $child [list "set" "g_shellType"              $g_shellType]
     interp eval $child [list "set" "g_shellName"              $g_shellName]

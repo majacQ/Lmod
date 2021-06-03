@@ -1,4 +1,4 @@
-#!@path_to_lua@/lua
+#!@path_to_lua@
 -- -*- lua -*-
 
 --------------------------------------------------------------------------
@@ -248,6 +248,11 @@ function main()
          if (v == "--help" or v == "-?" or v== "-h") then
             usage()
             return
+         end
+
+         if (v == "-") then
+            io.stderr:write(i18n("ml_opt",{v=v}))
+            os.exit(1)
          end
 
          local num = lmodOptT[v]

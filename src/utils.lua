@@ -429,6 +429,7 @@ end
 -- Get the table of modulerc files with proper weights
 
 function getModuleRCT(remove_MRC_home)
+   --dbg.start{"getModuleRCT(remove_MRC_home)"}
    local A            = {}
    local MRC_system   = cosmic:value("LMOD_MODULERCFILE")
    local MRC_home     = pathJoin(getenv("HOME"), ".modulerc")
@@ -452,6 +453,8 @@ function getModuleRCT(remove_MRC_home)
          A[#A+1] = { MRC_home, "u"}
       end
    end
+   --dbg.printT("fnA",A)
+   --dbg.fini("getModuleRCT")
    return A
 end
 
@@ -628,6 +631,9 @@ function setenv_lmod_version()
    for i = 1, #nameA do
       setenv_posix(nameA[i],numA[i] or "0", true)
    end
+
+   setenv_posix("ModuleTool",        "Lmod",     true)
+   setenv_posix("ModuleToolVersion", versionStr, true)
 end
 
 --------------------------------------------------------------------------
@@ -720,7 +726,6 @@ function ShowCmdStr(name, ...)
    return concatTbl(b,"")
 end
 
-
 --------------------------------------------------------------------------
 -- Unique string that combines the current time/date
 -- with a uuid id string.
@@ -732,9 +737,9 @@ function UUIDString(epoch)
                                    ymd.year, ymd.month, ymd.day,
                                    ymd.hour, ymd.min,   ymd.sec)
 
-   local uuidgen = find_exec_path('uuidgen')
+   local uuidgen, found = findInPath('uuidgen')
    local uuid_str
-   if uuidgen then
+   if (found) then
        uuid_str = capture('uuidgen'):sub(1,-2)
    else
       -- if uuidgen is not available, fall back to reading /proc/sys/kernel/random/uuid
@@ -930,3 +935,12 @@ if (not prepend_order) then
    build_prepend_order_function()
 end
 
+local s_checkSyntaxMode = false
+function setSyntaxMode(state)
+   s_checkSyntaxMode = state
+end
+function checkSyntaxMode()
+   return s_checkSyntaxMode
+end
+
+   
